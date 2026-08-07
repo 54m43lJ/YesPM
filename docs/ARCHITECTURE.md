@@ -94,6 +94,12 @@
 - **处理**: 渲染器遍历取值树**确定性**生成 Markdown（规则见 [`TEMPLATE_SPEC.md`](./TEMPLATE_SPEC.md) 渲染规则一节）
 - **输出**: `final_prd`（Markdown，可导出 PDF）
 - 渲染纯程序性、可重现，不依赖 LLM 重写
+- 渲染规则：
+  - 按位置路径深度生成标题层级（# / ## / ### …）。
+  - group / repeat / instance 仅产出标题；field 按 field_type 产出正文。
+  - text 输出段落；enum 输出所选项；table 输出 Markdown 表格。
+  - 必填未填字段输出占位符「（待补充）」，非必填空字段跳过。
+  - 若审核未完全通过，文末附「审核未决清单」。
 
 ### 4. 路由逻辑
 
