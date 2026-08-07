@@ -23,8 +23,9 @@
 
 | 字段 | 默认 | 取值 / 说明 |
 |------|------|------------|
-| `field_type` | `text` | `text`（自由文本，可多行） \| `enum`（受限选择） |
+| `field_type` | `text` | `text`（自由文本，可多行） \| `enum`（受限选择） \| `table`（扁平结构化表格） |
 | `enum_values` | — | 仅 `field_type: enum` 时必填，枚举项列表 |
+| `columns` | — | 仅 `field_type: table` 时必填，列定义列表；元素可为字符串（列名）或 `{title, enum_values?}` |
 | `required` | `false` | 完整性审核依据；与 `tier` 完全解耦 |
 | `tier` | 继承 | `P0` 逐字段深问 / `P1` 按章节批量问 / `P2` LLM 推断填充 |
 | `question` | `请说明{title}：` | 提问话术；支持 `{title}` 与 `{n}`（repeat 实例序号）插值 |
@@ -32,7 +33,9 @@
 | `description` | — | 字段含义，供追问与审核参考 |
 | `default` | — | 兜底默认值；支持 `{n}` 插值 |
 
-> field_type 仅有 `text` 与 `enum` 两种。建模原则：**有结构 → `repeat`；纯文本 → `text`；受限选择 → `enum`**。原先的"字符串列表"一律用 `text`（自由多行）表达，或升格为 `repeat`（若每项有内部结构）。
+> field_type 有 `text` / `enum` / `table` 三种。建模原则：**嵌套结构 → `repeat`；扁平表格（清单 / 矩阵）→ `table`；纯文本 → `text`；受限选择 → `enum`**。
+>
+> `table` 与 `repeat` 的区别：`table` 为扁平固定列、渲染为 Markdown 表格，整张表是单个寻址字段（值为「行对象列表」，键为列名）；`repeat` 每个实例是可任意嵌套的子树、渲染为分层小节，每个实例与其中字段各自独立寻址。需多层嵌套用 `repeat`，仅需行列清单用 `table`。
 
 ## tier 继承
 
@@ -98,7 +101,7 @@ group                        group
 - 按深度产出标题层级（`#` / `##` / `###` …）。
 - `group` 产出标题，不产出正文。
 - `repeat` 实例产出标题（形如 `{item_label} {序号}` 或实例自定义名）。
-- `field` 按 `field_type` 产出内容：`text` → 段落；`enum` → 所选项。
+- `field` 按 `field_type` 产出内容：`text` → 段落；`enum` → 所选项；`table` → Markdown 表格（首行为 `columns` 列名，其后每行一条记录）。
 - 空值字段按策略跳过或输出占位符。
 - 渲染纯程序性、可重现，不依赖 LLM 重写（LLM 仅可做轻量标题 / 过渡润色，非必需）。
 
@@ -109,7 +112,7 @@ group                        group
 1. 根为节点列表（章节数组）。
 2. 每个节点至少含 `title`。
 3. `repeat` 必须含 `item_label` 与 `children`；`group` 必须含 `children`；`field` 不得含 `children`。
-4. `field_type: enum` 必须提供 `enum_values`。
+4. `field_type: enum` 必须提供 `enum_values`；`field_type: table` 必须提供非空 `columns`。
 5. 每个节点都应是合法的 group / repeat / field（`children` 内不得出现 `item_label` 与 `children` 同时缺失的节点）。
 6. 加载时由 Pydantic 校验；不合规模板在启动阶段即被拒绝并报错定位。
 
@@ -140,4 +143,14 @@ group                        group
 - title: 优先级
   field_type: enum
   enum_values: [P0, P1, P2]
+
+# 一个 table field（扁平结构化清单）
+- title: 风险登记
+  field_type: table
+  columns:                  # 列名可用字符串简写
+    - 风险描述
+    - 影响评估
+    - 应对措施
+    - title: 优先级          # 也可用对象形式，附加约束
+      enum_values: [高, 中, 低]
 ```

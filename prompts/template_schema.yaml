@@ -31,14 +31,13 @@
         - title: 解决的核心问题
           required: true
     - title: 目标用户
-      item_label: 用户角色
+      field_type: table
       tier: P0
       min_items: 1
-      children:
-        - title: 角色名称
-          required: true
-        - title: 角色描述
-        - title: 核心诉求
+      columns:
+        - 角色名称
+        - 角色描述
+        - 核心诉求
     - title: 产品目标
       tier: P0
       children:
@@ -107,19 +106,15 @@
   tier: P0
   children:
     - title: 用户故事
-      item_label: 用户故事
+      field_type: table
       tier: P0
       min_items: 1
-      children:
-        - title: 编号
-          default: "US-{n}"
-        - title: 角色
-          required: true
-        - title: 场景
-          required: true
-        - title: 期望结果
+      columns:
+        - 编号
+        - 角色
+        - 场景
+        - 期望结果
         - title: 优先级
-          field_type: enum
           enum_values: [P0, P1, P2]
     - title: 核心使用路径
       tier: P1
@@ -130,11 +125,11 @@
   children:
     - title: 信息架构
     - title: 核心页面
-      item_label: 页面
-      children:
-        - title: 页面用途
-        - title: 核心元素
-        - title: 页面流转
+      field_type: table
+      columns:
+        - 页面用途
+        - 核心元素
+        - 页面流转
     - title: 交互规范
       children:
         - title: 操作反馈规范
@@ -161,27 +156,24 @@
   children:
     - title: 阶段划分
     - title: 里程碑明细
-      item_label: 里程碑
-      children:
-        - title: 内容
-        - title: 预计时间
-        - title: 交付物
-        - title: 依赖项
-          tier: P2
+      field_type: table
+      columns:
+        - 内容
+        - 预计时间
+        - 交付物
+        - 依赖项
 
 # ───────────── 九、风险与假设 ─────────────
 - title: 风险与假设
   tier: P1
   children:
     - title: 风险登记
-      item_label: 风险
-      children:
-        - title: 风险描述
-          required: true
-        - title: 影响评估
-        - title: 应对措施
-        - title: 责任人
-          tier: P2
+      field_type: table
+      columns:
+        - 风险描述
+        - 影响评估
+        - 应对措施
+        - 责任人
     - title: 假设与依赖
       children:
         - title: 业务假设
