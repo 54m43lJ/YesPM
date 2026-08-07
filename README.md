@@ -5,41 +5,42 @@
 ## 工作流程
 
 ```
-用户输入 → ① 产品定义澄清 → ② 按模板填写 PRD → ③ 文档质量审核 → ④ 输出成熟 PRD
+用户输入 → ① draft_prd（模板驱动问答）→ ② review_prd（字段级审核）→ ③ finalize_prd（渲染输出）
 ```
 
 | 阶段 | 节点 | 职责 |
 |------|------|------|
-| ① | `define_product` | 通过与用户交互明确产品定位、目标用户、核心功能等关键信息 |
-| ② | `draft_prd` | 基于预定义的 PRD 模板，将产品定义填充为结构化文档 |
-| ③ | `review_prd` | 根据质量标准审核文档完整性、逻辑性和规范性 |
-| ④ | `finalize_prd` | 整合审核意见，输出最终版 PRD 文档 |
+| ① | `draft_prd` | 借助模板通过引导式问答（混合粒度）澄清并填写，产出结构化取值树 |
+| ② | `review_prd` | 按字段维度（完整性 / 一致性 / 可行性）审核取值树，产出字段级失败清单 |
+| ③ | `finalize_prd` | 遍历取值树确定性渲染为 Markdown |
+
+> 澄清与按模板填写合并为单节点 `draft_prd`；中间态为与模板同构的取值树（非纯文本）。详见 [架构设计](docs/ARCHITECTURE.md)。
 
 ## 项目结构
 
 ```
 YesPM/
 ├── src/
-│   ├── nodes/          # LangGraph 节点实现
-│   │   ├── define.py       # 产品定义节点
-│   │   ├── draft.py        # PRD 撰写节点
-│   │   ├── review.py       # 审核节点
-│   │   └── finalize.py     # 终稿节点
-│   ├── state/          # 状态定义
-│   │   └── prd_state.py    # PRD 工作流 State
-│   ├── tools/          # 工具函数
-│   │   └── ...
-│   └── graph.py        # LangGraph 图定义与路由
-├── prompts/            # Prompt 模板
-│   ├── define.txt
+│   ├── nodes/                # LangGraph 节点实现
+│   │   ├── draft.py          # 模板驱动问答节点（澄清+填写合一）
+│   │   ├── review.py         # 字段级审核节点
+│   │   └── finalize.py       # 渲染输出节点
+│   ├── state/                # 状态定义
+│   │   └── prd_state.py      # PRDState 与取值树
+│   ├── tools/                # 工具函数
+│   │   ├── template_loader.py  # 加载 + Pydantic 校验模板 YAML
+│   │   └── renderer.py         # 取值树 → Markdown 渲染器
+│   └── graph.py              # LangGraph 图定义与路由
+├── prompts/                  # Prompt 与模板
+│   ├── template_schema.yaml  # 默认 PRD 模板（问答与渲染的唯一真源）
 │   ├── draft.txt
 │   ├── review.txt
 │   └── finalize.txt
 ├── docs/
-│   ├── ARCHITECTURE.md     # 架构设计文档
-│   └── PRD_TEMPLATE.md     # PRD 模板定义
-├── .env.example            # 环境变量示例
-├── requirements.txt        # Python 依赖
+│   ├── ARCHITECTURE.md       # 架构设计文档
+│   └── TEMPLATE_SPEC.md      # 模板数据结构规范（自定义模板契约）
+├── .env.example              # 环境变量示例
+├── requirements.txt          # Python 依赖
 └── README.md
 ```
 

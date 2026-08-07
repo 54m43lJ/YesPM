@@ -1,0 +1,143 @@
+# PRD 模板数据结构规范（TEMPLATE_SPEC）
+
+本规范定义 YesPM 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「问答驱动元数据」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 `draft_prd`、`review_prd`、`finalize_prd` 三个节点正确消费。
+
+## 设计原则
+
+1. **唯一真源**：不存在独立的渲染模板文件，最终文档由渲染器程序性遍历 YAML 树生成。
+2. **推断优于声明**：节点身份由树中位置推断，不显式写 `id`；节点类型由字段存在性推断，不显式写 `type`。
+3. **极致精简**：所有元数据均可省略并走默认；一个 field 最少只需 `title`。
+4. **任意深度**：树状递归结构，嵌套层数无限制。
+
+## 节点类型
+
+类型不显式声明，按下表推断（推断优先级自上而下）：
+
+| 推断条件 | 类型 | 必需字段 | 语义 |
+|---------|------|---------|------|
+| 含 `item_label` | `repeat` | `title`、`item_label`、`children` | 可重复子树；`children` 为单实例子模板，运行时按实例数复制 |
+| 含 `children`（且无 `item_label`） | `group` | `title`、`children` | 容器章节，仅组织结构 |
+| 二者皆无 | `field` | `title` | 叶子节点，承载数据 |
+
+## field 叶子元数据
+
+| 字段 | 默认 | 取值 / 说明 |
+|------|------|------------|
+| `field_type` | `text` | `text`（自由文本，可多行） \| `enum`（受限选择） |
+| `enum_values` | — | 仅 `field_type: enum` 时必填，枚举项列表 |
+| `required` | `false` | 完整性审核依据；与 `tier` 完全解耦 |
+| `tier` | 继承 | `P0` 逐字段深问 / `P1` 按章节批量问 / `P2` LLM 推断填充 |
+| `question` | `请说明{title}：` | 提问话术；支持 `{title}` 与 `{n}`（repeat 实例序号）插值 |
+| `example` | — | 提问示例 |
+| `description` | — | 字段含义，供追问与审核参考 |
+| `default` | — | 兜底默认值；支持 `{n}` 插值 |
+
+> field_type 仅有 `text` 与 `enum` 两种。建模原则：**有结构 → `repeat`；纯文本 → `text`；受限选择 → `enum`**。原先的"字符串列表"一律用 `text`（自由多行）表达，或升格为 `repeat`（若每项有内部结构）。
+
+## tier 继承
+
+- 叶子节点的有效 tier = 自身 `tier` 或最近祖先的 `tier`。
+- 整棵树无任何 tier 时，根默认 `P1`。
+- 任一节点可覆盖祖先 tier，对其子树生效。
+
+tier 仅决定 `draft_prd` 节点的提问策略，不与 `required` 耦合：一个字段可以是「P2 推断 + required」，也可以是「P0 逐问 + 非必填」。
+
+| tier | 提问策略 |
+|------|---------|
+| `P0` | 逐字段深问，必要时多轮追问 |
+| `P1` | 按章节聚合，一次性批量提问 |
+| `P2` | 不主动提问，节点末尾由 LLM 基于上下文推断填入 |
+
+## 编号与寻址
+
+无 `id`，纯位置推断。渲染器 / 审核器遍历树时按出现序生成路径：
+
+- 顶层章节按序编号 `1`、`2`、`3` …
+- 每深一层追加 `.序号`
+- `repeat` 的每个实例占一级编号：`3.2 核心功能详述`（repeat）→ 实例 1 = `3.2.1` → 其子 = `3.2.1.1` …
+
+位置路径（如 `"3.2.1.2.1"`）用作 `filled_paths` / `failed_fields` 的寻址键。repeat 实例增删不改变既有实例的路径，仅追加或移除尾部序号。
+
+```
+3    功能需求                 (group)
+3.1    功能模块划分           (field)
+3.2    核心功能详述           (repeat, item_label=功能)
+3.2.1    功能 1               (实例)
+3.2.1.1   功能名称            (field)
+3.2.1.2   用户操作流程        (group)
+3.2.1.2.1  主流程             (field)
+3.2.1.2.2  异常分支           (field)
+3.2.2    功能 2               (实例)
+...
+```
+
+## 中间态：取值树
+
+`prd_draft` 是与模板同构的**取值树**：
+
+- 遍历模板实例化：`field` 叶子持有用户填入值或空，`group` 仅作结构，`repeat` 展开为实例数组。
+- 审核（`review_prd`）与渲染（`finalize_prd`）均基于此树。
+- 取值树是全流程唯一中间态，取代任何字符串形式的草稿。
+
+```
+模板树（template）            取值树（prd_draft）
+─────────────────            ─────────────────
+group                        group
+├─ field                     ├─ field → "已填值"
+├─ repeat                    ├─ repeat
+│  └─ children(单实例)        │  ├─ 实例1 (children 已实例化)
+│                            │  └─ 实例2
+└─ group                     └─ group
+   └─ field                     └─ field → 空
+```
+
+## 渲染规则
+
+`finalize_prd` 由渲染器遍历取值树**确定性**生成 Markdown：
+
+- 按深度产出标题层级（`#` / `##` / `###` …）。
+- `group` 产出标题，不产出正文。
+- `repeat` 实例产出标题（形如 `{item_label} {序号}` 或实例自定义名）。
+- `field` 按 `field_type` 产出内容：`text` → 段落；`enum` → 所选项。
+- 空值字段按策略跳过或输出占位符。
+- 渲染纯程序性、可重现，不依赖 LLM 重写（LLM 仅可做轻量标题 / 过渡润色，非必需）。
+
+## 用户自定义合规约束
+
+自定模板必须满足：
+
+1. 根为节点列表（章节数组）。
+2. 每个节点至少含 `title`。
+3. `repeat` 必须含 `item_label` 与 `children`；`group` 必须含 `children`；`field` 不得含 `children`。
+4. `field_type: enum` 必须提供 `enum_values`。
+5. 每个节点都应是合法的 group / repeat / field（`children` 内不得出现 `item_label` 与 `children` 同时缺失的节点）。
+6. 加载时由 Pydantic 校验；不合规模板在启动阶段即被拒绝并报错定位。
+
+## YAML 示意
+
+```yaml
+# 一个 group（容器章节）
+- title: 产品概述
+  tier: P0
+  children:
+    - title: 一句话定位          # 极简 field：仅 title
+      required: true
+
+# 一个 repeat（可重复子树）
+- title: 核心功能详述
+  item_label: 功能
+  tier: P0
+  children:                      # 单实例子模板，运行时复制
+    - title: 功能名称
+      required: true
+    - title: 用户操作流程
+      children:                  # 嵌套 group，任意深度
+        - title: 主流程
+        - title: 异常分支
+          tier: P1               # 子树降级为批量问
+
+# 一个 enum field
+- title: 优先级
+  field_type: enum
+  enum_values: [P0, P1, P2]
+```
