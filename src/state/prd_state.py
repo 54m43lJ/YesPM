@@ -10,6 +10,11 @@ class PRDState(TypedDict, total=False):
     prd_draft: Optional[list]
     filled_paths: list
     pending_paths: list
+    pending_attempts: dict
+    audit_result: dict
+    audit_passed: bool
+    preview_pending: list
+    preview_items: list
     review_result: dict
     review_passed: bool
     failed_fields: list
@@ -17,6 +22,17 @@ class PRDState(TypedDict, total=False):
     iteration_count: int
     draft_done: bool
     reask_mode: bool
+    await_audit: bool
+    audit_path: str
+    draft_rounds: int
+    chapter_path: str
+    session_active: bool
+    session_kind: str
+    session_rounds: int
+    need_input: bool
+    input_kind: str
+    ui_payload: dict
+    user_answer: object
 
 
 def is_empty(vn: dict) -> bool:

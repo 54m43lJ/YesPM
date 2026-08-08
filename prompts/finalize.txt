@@ -1,0 +1,10 @@
+# finalize_prd 节点说明
+
+finalize_prd 为纯程序性确定性渲染，不依赖 LLM，因此本提示词不被节点加载使用，仅作说明存档：
+
+- 渲染器遍历取值树（prd_draft）按位置路径深度生成标题层级（# / ## / ### …）。
+- group / repeat / instance 仅产出标题；field 按 field_type 产出正文（text → 段落；enum → 所选项；table → Markdown 表格）。
+- 必填未填字段输出占位符「（待补充）」，非必填空字段跳过。
+- 若审核未完全通过，文末附「审核未决清单」。
+
+实现见 src/tools/renderer.py 与 src/nodes/finalize.py。

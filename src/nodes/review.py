@@ -4,6 +4,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from src.state.prd_state import PRDState, is_empty
+from src.tools.auto_fix import auto_fix_hook
 from src.tools.template_loader import load_prompt
 
 
@@ -85,31 +86,37 @@ def review_prd(state: PRDState) -> PRDState:
 
     summary = "完整性校验完成。"
     try:
-        from src.llm import get_llm
+        from src.llm import get_llm, llm_structured
 
-        llm = get_llm().with_structured_output(ReviewResult)
-        res = llm.invoke([
-            SystemMessage(content=load_prompt("review.txt")),
-            HumanMessage(content=(
-                f"产品简述：{state.get('initial_brief', '')}\n\n"
-                f"取值树（path title: value）：\n{_serialize(tree)}"
-            )),
-        ])
+        res = llm_structured(
+            get_llm(),
+            ReviewResult,
+            [
+                SystemMessage(content=load_prompt("review.txt")),
+                HumanMessage(content=(
+                    f"产品简述：{state.get('initial_brief', '')}\n\n"
+                    f"取值树（path title: value）：\n{_serialize(tree)}"
+                )),
+            ],
+        )
         for it in res.failed_fields:
             failed.append({"path": it.path, "dimension": it.dimension, "reason": it.reason})
         summary = res.summary or summary
     except Exception as e:
         summary = f"LLM 一致性/可行性审核跳过（{e}），仅完成完整性校验。"
 
+    failed, patched = auto_fix_hook(failed, tree)
+
     state["failed_fields"] = failed
     state["review_passed"] = len(failed) == 0
-    state["review_result"] = {"summary": summary, "failed_count": len(failed)}
+    state["review_result"] = {"summary": summary, "failed_count": len(failed), "auto_fixed": patched}
     state["iteration_count"] = state.get("iteration_count", 0) + 1
     state["draft_done"] = False
 
     if failed:
         state["reask_mode"] = True
         state["pending_paths"] = [f["path"] for f in failed]
+        state["pending_attempts"] = {}
     else:
         state["reask_mode"] = False
         state["pending_paths"] = []

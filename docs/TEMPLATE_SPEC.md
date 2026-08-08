@@ -1,6 +1,6 @@
 # PRD 模板数据结构规范（TEMPLATE_SPEC）
 
-本规范定义 YesPM 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「对话澄清元数据」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 `draft_prd`、`audit_input`、`review_prd`、`finalize_prd` 节点正确消费（`polish_prd` 作用于成文后的 Markdown，不接触模板）。
+本规范定义 YesPM 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「对话引导元数据」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 `draft_prd`、`audit_input`、`review_prd`、`finalize_prd` 节点正确消费（`polish_prd` 作用于成文后的 Markdown，不接触模板）。
 
 ## 设计原则
 
@@ -27,12 +27,14 @@
 | `enum_values` | — | 仅 `field_type: enum` 时必填，枚举项列表 |
 | `columns` | — | 仅 `field_type: table` 时必填，列定义列表；元素可为字符串（列名）或 `{title, enum_values?}` |
 | `required` | `false` | 完整性审核依据；与 `tier` 完全解耦 |
-| `tier` | 继承 | `P0` 逐字段深入对话 / `P1` 按章节对话式讨论 / `P2` LLM 推断填充 |
-| `question` | `请说明{title}：` | 提问话术；支持 `{title}` 与 `{n}`（repeat 实例序号）插值 |
+| `tier` | 继承 | `P0` 章节内逐字段深入追问 / `P1` 整章自由对话讨论 / `P2` LLM 推断填充 |
+| `question` | `请说明{title}：` | 对话引导话术：引导 LLM 发起该话题的自然提问（兜底参考，不直接展示）；支持 `{title}` 与 `{n}`（repeat 实例序号）插值 |
 | `example` | — | 提问示例 |
 | `description` | — | 字段含义，供追问与审核参考 |
 | `default` | — | 兜底默认值；支持 `{n}` 插值 |
 
+> `question` / `example` / `description` 是**对话引导元数据**：作为上下文喂给 `draft_prd` 章节会话的 LLM，由 LLM 组织成自然对话提问，**不直接作为提示词文本**展示给用户（`{title}` / `{n}` 插值同样用于引导）。
+>
 > field_type 有 `text` / `enum` / `table` 三种。建模原则：**嵌套结构 → `repeat`；扁平表格（清单 / 矩阵）→ `table`；纯文本 → `text`；受限选择 → `enum`**。
 >
 > `table` 与 `repeat` 的区别：`table` 为扁平固定列、渲染为 Markdown 表格，整张表是单个寻址字段（值为「行对象列表」，键为列名）；`repeat` 每个实例是可任意嵌套的子树、渲染为分层小节，每个实例与其中字段各自独立寻址。需多层嵌套用 `repeat`，仅需行列清单用 `table`。
@@ -43,13 +45,13 @@
 - 整棵树无任何 tier 时，根默认 `P1`。
 - 任一节点可覆盖祖先 tier，对其子树生效。
 
-tier 仅决定 `draft_prd` 节点的讨论策略（对话式澄清的深度与粒度），不与 `required` 耦合：一个字段可以是「P2 推断 + required」，也可以是「P0 逐问 + 非必填」。
+tier 仅决定 `draft_prd` 节点的讨论策略（对话式澄清的深度与粒度），不与 `required` 耦合：一个字段可以是「P2 推断 + required」，也可以是「P0 章节内逐字段追问 + 非必填」。
 
 | tier | 讨论策略 |
 |------|---------|
-| `P0` | 逐字段深入对话讨论，必要时多轮追问 |
+| `P0` | 章节会话内逐字段深入追问，必要时多轮追问 |
 | `P1` | 按章节聚合，以对话方式讨论整章细节 |
-| `P2` | 不主动提问，章节末尾由 LLM 基于上下文推断填入 |
+| `P2` | 不主动提问，章节成熟后由 LLM 基于上下文推断填入 |
 
 ## 编号与寻址
 

@@ -2,7 +2,6 @@
 # 本文件为「问答驱动元数据」与「渲染脚手架」的唯一真源。
 # 用户可完全自定义，只要符合 docs/TEMPLATE_SPEC.md 规范即可。
 
-# ───────────── 一、文档信息 ─────────────
 - title: 文档信息
   tier: P1
   children:
@@ -18,7 +17,6 @@
           required: true
         - title: 产品代号
 
-# ───────────── 二、产品概述 ─────────────
 - title: 产品概述
   tier: P0
   children:
@@ -26,3 +24,12 @@
         tier: P0
         required: true
         description: 用一句话描述产品是什么、解决谁的什么问题。
+
+- title: 开发任务清单
+  tier: P0
+  field_type: table
+  columns:
+    - 阶段
+    - 标题
+    - 交付标准
+    - 完成状态

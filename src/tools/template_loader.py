@@ -76,6 +76,10 @@ def _to_template_dict(tn: TemplateNode) -> dict:
     d = tn.model_dump()
     d["node_type"] = tn.node_type
     d["columns"] = normalize_columns(tn.columns)
+    d["column_defs"] = [
+        {"title": c if isinstance(c, str) else c.title, "enum_values": None if isinstance(c, str) else c.enum_values}
+        for c in (tn.columns or [])
+    ]
     if tn.children:
         d["children"] = [_to_template_dict(c) for c in tn.children]
     return d
@@ -107,6 +111,7 @@ def build_skeleton(tnodes: list[dict], parent_path: str = "", parent_tier: str =
             "field_type": tn.get("field_type", "text"),
             "enum_values": tn.get("enum_values"),
             "columns": tn.get("columns"),
+            "column_defs": tn.get("column_defs"),
             "required": tn.get("required", False),
             "question": tn.get("question"),
             "example": tn.get("example"),
@@ -122,6 +127,12 @@ def build_skeleton(tnodes: list[dict], parent_path: str = "", parent_tier: str =
         }
         if nt == "group":
             node["children"] = build_skeleton(tn.get("children") or [], path, eff)
+        elif nt == "field" and tn.get("default") is not None:
+            from src.tools.validate import validate_value
+
+            if not validate_value(node, tn["default"]):
+                node["value"] = tn["default"]
+                node["filled"] = True
         out.append(node)
     return out
 
