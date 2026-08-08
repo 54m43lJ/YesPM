@@ -1,6 +1,6 @@
 # PRD 模板数据结构规范（TEMPLATE_SPEC）
 
-本规范定义 YesPM 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「问答驱动元数据」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 `draft_prd`、`review_prd`、`finalize_prd` 三个节点正确消费。
+本规范定义 YesPM 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「对话澄清元数据」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 `draft_prd`、`audit_input`、`review_prd`、`finalize_prd` 节点正确消费（`polish_prd` 作用于成文后的 Markdown，不接触模板）。
 
 ## 设计原则
 
@@ -27,7 +27,7 @@
 | `enum_values` | — | 仅 `field_type: enum` 时必填，枚举项列表 |
 | `columns` | — | 仅 `field_type: table` 时必填，列定义列表；元素可为字符串（列名）或 `{title, enum_values?}` |
 | `required` | `false` | 完整性审核依据；与 `tier` 完全解耦 |
-| `tier` | 继承 | `P0` 逐字段深问 / `P1` 按章节批量问 / `P2` LLM 推断填充 |
+| `tier` | 继承 | `P0` 逐字段深入对话 / `P1` 按章节对话式讨论 / `P2` LLM 推断填充 |
 | `question` | `请说明{title}：` | 提问话术；支持 `{title}` 与 `{n}`（repeat 实例序号）插值 |
 | `example` | — | 提问示例 |
 | `description` | — | 字段含义，供追问与审核参考 |
@@ -43,13 +43,13 @@
 - 整棵树无任何 tier 时，根默认 `P1`。
 - 任一节点可覆盖祖先 tier，对其子树生效。
 
-tier 仅决定 `draft_prd` 节点的提问策略，不与 `required` 耦合：一个字段可以是「P2 推断 + required」，也可以是「P0 逐问 + 非必填」。
+tier 仅决定 `draft_prd` 节点的讨论策略（对话式澄清的深度与粒度），不与 `required` 耦合：一个字段可以是「P2 推断 + required」，也可以是「P0 逐问 + 非必填」。
 
-| tier | 提问策略 |
+| tier | 讨论策略 |
 |------|---------|
-| `P0` | 逐字段深问，必要时多轮追问 |
-| `P1` | 按章节聚合，一次性批量提问 |
-| `P2` | 不主动提问，节点末尾由 LLM 基于上下文推断填入 |
+| `P0` | 逐字段深入对话讨论，必要时多轮追问 |
+| `P1` | 按章节聚合，以对话方式讨论整章细节 |
+| `P2` | 不主动提问，章节末尾由 LLM 基于上下文推断填入 |
 
 ## 编号与寻址
 
@@ -81,6 +81,7 @@ tier 仅决定 `draft_prd` 节点的提问策略，不与 `required` 耦合：�
 - 遍历模板实例化：`field` 叶子持有用户填入值或空，`group` 仅作结构，`repeat` 展开为实例数组。
 - 审核（`review_prd`）与渲染（`finalize_prd`）均基于此树。
 - 取值树是全流程唯一中间态，取代任何字符串形式的草稿。
+- **任何写入取值树的值必须通过确定性格式校验**（`validate_value`，见 [ARCHITECTURE.md](../docs/ARCHITECTURE.md)「结构化数据格式保障机制」），格式不合法或未通过用户预览确认的值不得写入。
 
 ```
 模板树（template）            取值树（prd_draft）
@@ -103,7 +104,7 @@ group                        group
 - `repeat` 实例产出标题（形如 `{item_label} {序号}` 或实例自定义名）。
 - `field` 按 `field_type` 产出内容：`text` → 段落；`enum` → 所选项；`table` → Markdown 表格（首行为 `columns` 列名，其后每行一条记录）。
 - 空值字段按策略跳过或输出占位符。
-- 渲染纯程序性、可重现，不依赖 LLM 重写（LLM 仅可做轻量标题 / 过渡润色，非必需）。
+- 渲染纯程序性、可重现，不依赖 LLM 重写；成文后由独立的 `polish_prd` 节点做整体润色定稿（仅表达层面，不改结构与内容）。
 
 ## 用户自定义合规约束
 
@@ -137,7 +138,7 @@ group                        group
       children:                  # 嵌套 group，任意深度
         - title: 主流程
         - title: 异常分支
-          tier: P1               # 子树降级为批量问
+          tier: P1               # 子树降级为章节级讨论
 
 # 一个 enum field
 - title: 优先级

@@ -5,16 +5,19 @@
 ## 工作流程
 
 ```
-用户输入 → ① draft_prd（模板驱动问答）→ ② review_prd（字段级审核）→ ③ finalize_prd（渲染输出）
+用户输入 → ① draft_prd（章节对话式讨论，逐轮审核循环）→ ② review_prd（字段级审核）
+        → ③ finalize_prd（渲染输出）→ ④ polish_prd（LLM 润色定稿）
 ```
 
 | 阶段 | 节点 | 职责 |
 |------|------|------|
-| ① | `draft_prd` | 借助模板通过引导式问答（混合粒度）澄清并填写，产出结构化取值树 |
-| ② | `review_prd` | 按字段维度（完整性 / 一致性 / 可行性）审核取值树，产出字段级失败清单 |
-| ③ | `finalize_prd` | 遍历取值树确定性渲染为 Markdown |
+| ① | `draft_prd` | 以对话方式逐章节讨论细节，多轮对话讨论成熟后总结提炼为章节，写入取值树 |
+| ①′ | `audit_input` | 阶段内审核 agent：每次收到用户回复后判定内容是否达到章节要求，未达标则重新提问 |
+| ② | `review_prd` | 按字段维度（完整性 / 一致性 / 可行性）审核整棵取值树，产出字段级失败清单 |
+| ③ | `finalize_prd` | 遍历取值树确定性渲染为 Markdown 初稿 |
+| ④ | `polish_prd` | 对整篇 Markdown 做 LLM 润色定稿（仅表达层面，不改结构与内容） |
 
-> 澄清与按模板填写合并为单节点 `draft_prd`；中间态为与模板同构的取值树（非纯文本）。详见 [架构设计](docs/ARCHITECTURE.md)。
+> ① 与 ①′ 构成阶段内循环：`draft_prd` 逐章节对话式提问 → `audit_input` 判定单轮回复是否达标 → 未达标基于审核反馈重新提问，达标则继续下一话题或总结为章节。中间态为与模板同构的取值树（非纯文本）。详见 [架构设计](docs/ARCHITECTURE.md)。
 
 ## 项目结构
 
@@ -22,9 +25,11 @@
 YesPM/
 ├── src/
 │   ├── nodes/                # LangGraph 节点实现
-│   │   ├── draft.py          # 模板驱动问答节点（澄清+填写合一）
+│   │   ├── draft.py          # 章节对话式讨论节点（多轮循环）
+│   │   ├── audit.py          # 阶段内审核节点（单轮回复达标判定）
 │   │   ├── review.py         # 字段级审核节点
-│   │   └── finalize.py       # 渲染输出节点
+│   │   ├── finalize.py       # 渲染输出节点
+│   │   └── polish.py         # LLM 润色定稿节点
 │   ├── state/                # 状态定义
 │   │   └── prd_state.py      # PRDState 与取值树
 │   ├── tools/                # 工具函数
@@ -34,8 +39,10 @@ YesPM/
 ├── prompts/                  # Prompt 与模板
 │   ├── template_schema.yaml  # 默认 PRD 模板（问答与渲染的唯一真源）
 │   ├── draft.txt
+│   ├── audit.txt
 │   ├── review.txt
-│   └── finalize.txt
+│   ├── finalize.txt
+│   └── polish.txt
 ├── docs/
 │   ├── ARCHITECTURE.md       # 架构设计文档
 │   └── TEMPLATE_SPEC.md      # 模板数据结构规范（自定义模板契约）
