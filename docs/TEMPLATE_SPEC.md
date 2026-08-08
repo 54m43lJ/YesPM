@@ -1,6 +1,6 @@
 # PRD 模板数据结构规范（TEMPLATE_SPEC / V2）
 
-本规范定义 YesPM V2 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「访谈指引」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 interview_agent、review_agent、transcribe_agent、full_review、润色管线正确消费。
+本规范定义 YesPM V2 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「访谈指引」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 interview_agent、unit_review_agent、transcribe_agent、document_review_agent、润色管线正确消费。
 
 ## 设计原则
 
@@ -28,7 +28,7 @@
 | `columns` | — | 仅 `field_type: table` 时必填，列定义列表；元素可为字符串（列名）或 `{title, enum_values?}` |
 | `required` | `false` | 完整性审核依据；与 `tier` 完全解耦 |
 | `tier` | 继承 | `P0` 字段级访谈单元 / `P1` 章节级访谈单元 / `P2` 无单元、转录时推断（见 tier 语义） |
-| `hint` | — | 访谈要点提示：给 interview_agent 的提问方向（怎么问、追问什么），同时供 review_agent 作为成熟度评审参考（该字段覆盖了旧版 `question` 与 `example` 的职责） |
+| `hint` | — | 访谈要点提示：给 interview_agent 的提问方向（怎么问、追问什么），同时供 unit_review_agent 作为成熟度评审参考 |
 | `description` | — | 字段含义说明，供访谈与审核参考 |
 | `default` | — | 兜底默认值；P2 推断失败时的回退值 |
 | `preserve` | `false` | 润色禁区标记：`true` 时禁止润色 agent 对该字段做任何表示转换。**仅对 `field_type: text` 生效**；`table` / `enum` 类型天然禁止润色转换，无需标记 |
@@ -51,7 +51,7 @@ tier 决定访谈阶段（Node ①）的**单元划分**——每个访谈单元
 
 ### tier 继承与单元拆分规则
 
-- 节点的有效 tier = 自身 `tier` 或最近祖先的 `tier`；整棵树无任何 tier 时，根默认 `P1`。
+- 节点的有效 tier = 自身 `tier` 或最近祖先声明的 `tier`；自身及祖先均未声明时默认 `P0`（符合人工介入原则：未声明 tier 的字段同样经专门访谈）。
 - `tier` 可声明在任意节点上并对其子树生效；声明在 `group` 上即定义章节级单元。
 - **P1 章节内嵌 P0 字段的拆分**：该 P0 字段**拆出独立字段级单元**，先于章节单元访谈；章节剩余内容（不含该 P0 字段）整体作为一个 P1 单元。
 - 一个字段可以是「P2 推断 + required」，也可以是「P0 访谈 + 非必填」，tier 与 `required` 完全解耦。
@@ -72,7 +72,10 @@ tier 决定访谈阶段（Node ①）的**单元划分**——每个访谈单元
 
 位置路径（如 `"3.2.1.2.1"`）用作 `units_done` / `gap_list` 的寻址键：
 
-- **gap 统一为字段级**：`gap_list` 的 `path` 恒指字段路径；访谈单元的归并可由此推导（其最近 P0/P1 祖先即所属单元）。
+- **gap 统一为字段级**：`gap_list` 的 `path` 恒指字段路径；访谈单元的归并按下述规则由字段的有效 tier 决定：
+  - 有效 tier 为 `P0` → 该字段自身即访谈单元，直接重新访谈该字段；
+  - 有效 tier 为 `P1` → 递归向上归并至所属章节级单元（最近声明 `P1` 的祖先），以根节点为兜底边界；
+  - 有效 tier 为 `P2` → 不产生访谈单元，兜底直接交由 transcribe_agent 依据上下文重新总结，不走访谈。
 - repeat 实例增删不改变既有实例的路径，仅追加或移除尾部序号。
 
 ```
@@ -93,7 +96,7 @@ tier 决定访谈阶段（Node ①）的**单元划分**——每个访谈单元
 `prd_draft` 是与模板同构的**取值树**：
 
 - 遍历模板实例化：`field` 叶子持有转录值或空，`group` 仅作结构，`repeat` 展开为实例数组。
-- interview_agent / review_agent 的跨单元上下文、full_review 的审核输入、渲染基线均基于此树。
+- interview_agent / unit_review_agent 的跨单元上下文、document_review_agent 的审核输入、渲染基线均基于此树。
 - 取值树是全流程唯一中间态，取代任何字符串形式的草稿。
 
 ```
@@ -147,7 +150,7 @@ group                        group
 ## YAML 示意
 
 ```yaml
-# 一个 group（容器章节，P1 章节级访谈单元）
+# 一个 group（容器章节，tier 声明在 group 上即定义章节级单元）
 - title: 产品概述
   tier: P0                    # P0 章节：其中 P0 字段逐个单独访谈
   children:
