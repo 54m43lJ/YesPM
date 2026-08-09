@@ -33,7 +33,7 @@
 
 ### 2.3 流式输出
 
-- 按 `message_id` 拼接 `message/chunk` 增量打印；`message/complete` 落盘副本（供复制 / 导出）。
+- 按 `message_id` 拼接 `session/message`（2031 chunk）增量打印；2032（complete）落盘副本（供复制 / 导出）。
 
 ### 2.4 中断与退出语义
 
@@ -44,18 +44,18 @@
 
 | 事件 | 行为 |
 |------|------|
-| `session/ready` | 打印会话信息与恢复后的挂起状态 |
-| `node/entered` / `node/exited` | 打印阶段切换（如 `—— 全文档审核 ——`） |
-| `message/chunk` / `message/complete` | 流式渲染 agent 输出 |
-| `input/required` | 更新提示符上下文，进入等待输入态 |
-| `proposal/pending` | 逐条打印提案（位置 / 原形态 / 目标形态 / 风险），等待 `y/n` |
-| `document/reviewed` | 打印审核结论与缺口清单 |
-| `polish/progress` | 打印转换日志 |
-| `prd/rendered` | 打印最终文档（或写文件），附转换日志与未决清单 |
-| `session/ended` | 退出主循环 |
-| `error` / `log` | 打印（`log` 到 stderr） |
+| `session/status`（首条全字段） | 打印会话信息与恢复后的挂起状态 |
+| `session/status`（`stage` / `node` 字段） | 打印阶段切换（如 `—— 全文档审核 ——`） |
+| `session/message`（2031 / 2032） | 流式渲染 agent 输出 |
+| `session/await_input` | 更新提示符上下文，进入等待输入态（阶段 / 等待种类由已收 `session/status` 推断） |
+| `session/status`（`waiting` 含 `proposal_ids`） | 结合自然语言提案描述（`session/message`），等待 `y/n` 后按序 `proposal/respond` |
+| `gaps/changed` | 提示审核不通过，可按需 `query/gaps` 展示缺口清单（自然语言结论已随 `session/message` 显示） |
+| `conversions/changed` | 提示转换日志更新，可按需 `query/conversions` |
+| `prd/changed` | 按需 `query/prd`，打印最终文档（或写文件），附转换日志与未决清单 |
+| `session/status`（`ended` 字段） | 退出主循环 |
+| `log` | 按 `status_code` 等级打印（error / fatal 级到 stderr） |
 
 ## 4. 与后端的分界
 
 - CLI 代码只依赖 `protocol/` 客户端侧（in-process Transport），不 import `engine/` 内部。
-- 所有语义决策（操作可用性、输入暂存、中断）都在引擎侧；CLI 对不可用操作直接展示后端错误（1003 等）。
+- 所有语义决策（操作可用性、输入暂存、中断）都在引擎侧；CLI 对不可用操作直接展示后端错误（4103 等）。

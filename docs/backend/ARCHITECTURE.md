@@ -244,8 +244,8 @@ Session
 
 - **API 方法分发**：引擎入口是协议方法分发器（方法 → 引擎操作），不存在「命令文本路由」——`input/send` 的 `text` 是纯数据，原样转发给当前活跃节点；`command/skip` / `command/finish` / `command/undo` / `proposal/respond` / `session/quit` 是结构化操作（原则 6，见 [ARCHITECTURE_V2.md](../ARCHITECTURE_V2.md)）。
 - **单一状态源**：状态本体在 LangGraph checkpoint 中（仅 SqliteSaver 一份）；会话元数据表只维护会话清单（创建时间、模板、状态摘要），不复制状态。
-- **单会话串行**：一个 Session 同一时刻只跑一个图执行（流式 `stream_mode`）；busy 期间到达的 `input/send` 进入 `pending_queue`（对应协议 `queued: true`，见 [PROTOCOL.md](../api/PROTOCOL.md) §8），其余请求返回 1005。
-- **事件发布**：引擎内所有状态变化发布领域事件；由传输适配层序列化为协议通知。引擎不感知前端存在。
+- **单会话串行**：一个 Session 同一时刻只跑一个图执行（流式 `stream_mode`）；busy 期间到达的 `input/send` 进入 `pending_queue`（对应协议 `queued: true`，见 [PROTOCOL.md](../api/PROTOCOL.md) §8），其余请求返回 4005。
+- **事件发布**：引擎内所有状态变化发布领域事件；由传输适配层序列化为协议通知——事件收敛为 4 个通用模板（`log` / `session/status` / `session/message` / `session/await_input`）+ 大载荷变更信号（`tree/changed` / `prd/changed` / `gaps/changed` / `conversions/changed`），见 [PROTOCOL.md](../api/PROTOCOL.md) §5。引擎不感知前端存在。
 
 ## 4. 技术栈结论
 
@@ -262,7 +262,7 @@ src/yespm_backend/
 ├── engine/                 # 无头会话引擎（零 UI、零传输依赖）
 │   ├── session.py          # Session 状态机：持有图实例、方法分发入口、中断管理、暂存队列
 │   ├── dispatch.py         # API 方法分发：协议方法 → 引擎操作（无命令文本路由）
-│   ├── events.py           # 领域事件定义（事件目录的 Python 实现，PROTOCOL §5）
+│   ├── events.py           # 领域事件定义（4 通用模板 + 大载荷变更信号的 Python 实现，PROTOCOL §5）
 │   └── store.py            # 会话元数据（会话清单；状态本体在 checkpoint 中）
 ├── graph/                  # LangGraph 图与节点（访谈 / 审核 / 润色，见 §2）
 ├── protocol/               # 协议层（唯一通信面）
@@ -291,5 +291,5 @@ src/yespm_backend/
 1. **依赖方向单向**：`engine/` → `graph/`；`protocol/` 与 `entry/` → `engine/`。engine 不得 import 任何 UI / 传输代码。
 2. **单一契约**：CLI 不绕过协议直调 engine 内部——它使用进程内 Transport 走同一 JSON-RPC 消息（[PROTOCOL.md](../api/PROTOCOL.md) 原则 6），保证三前端行为一致。
 3. **自由文本零命令语义**：引擎对 `input/send` 的 `text` 不做任何命令解析（`/xxx`、`y/n` 等一律按数据转发给当前活跃节点）。
-4. **错误分级**：可恢复（LLM 调用失败 → 重试，耗尽后 3001）与致命（配置错误 2002、模板不合法 2001——加载时由 Pydantic 校验，启动阶段即拒绝并报错定位）。
+4. **错误分级**：全部错误以四位状态码统一表达（见 [PROTOCOL.md](../api/PROTOCOL.md) §11）：可恢复 error 级（LLM 调用失败 → 重试，耗尽后 4803）与致命 fatal 级（配置错误 5802、模板不合法 5701——加载时由 Pydantic 校验，启动阶段即拒绝并报错定位；checkpoint 持久化失败 5902、引擎内部故障 5901）。
 5. **零新增依赖**：SQLite（标准库）持久化沿用设计原则 3 的结论。

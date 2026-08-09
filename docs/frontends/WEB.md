@@ -31,7 +31,7 @@
 
 ### 2.3 流式输出
 
-- 对话流按 `message_id` 增量渲染 `message/chunk`；`message/complete` 提供全量文本（复制按钮）。
+- 对话流按 `message_id` 增量渲染 `session/message`（2031 chunk）；2032（complete）提供全量文本（复制按钮）。
 
 ### 2.4 中断与退出语义
 
@@ -45,25 +45,25 @@
 |------|------|---------|
 | 会话列表 | 历史会话 + 新建（模板选择） | `session/list` → `session/create` |
 | 访谈视图 | 对话流、当前单元提示、输入区、操作按钮 | 事件流 + `query/status` |
-| 取值树 | 可折叠树形浏览（路径寻址） | `query/tree` |
-| 润色确认 | 高风险提案卡片，应用 / 拒绝批量操作 | `proposal/pending` → `proposal/respond` |
-| 文档预览 | Markdown 渲染 + 下载 / 复制（`prd/rendered`） | 事件 |
+| 取值树 | 可折叠树形浏览（路径寻址） | `tree/changed` → `query/tree` |
+| 润色确认 | 高风险提案卡片，应用 / 拒绝批量操作——自然语言描述来自 `session/message`，`proposal_ids` 来自 `session/status` 的 `waiting` | `session/message` + `session/status` → `proposal/respond` |
+| 文档预览 | Markdown 渲染 + 下载 / 复制 | `prd/changed` → `query/prd` |
 
 ## 4. 必须处理的事件 → 行为
 
 | 事件 | 行为 |
 |------|------|
-| `session/ready` | 进入访谈视图，恢复挂起状态 |
-| `message/chunk` / `message/complete` | 流式渲染（增量追加；complete 提供全量文本供复制） |
-| `input/required` | 激活输入区（interview）；proposal 切换确认面板 |
-| `proposal/pending` | 提案卡片列表，批量应用 / 拒绝 |
-| `tree/changed` | 刷新取值树视图（按需 `query/tree`） |
-| `status/changed` | 刷新进度与当前单元 |
-| `document/reviewed` | 缺口清单展示 |
-| `polish/progress` | 转换日志面板 |
-| `prd/rendered` | 文档预览 + 导出 |
-| `session/ended` | 返回会话列表 |
-| `error` | toast 展示 |
+| `session/status`（首条全字段） | 进入访谈视图，恢复挂起状态 |
+| `session/message`（2031 / 2032） | 流式渲染（增量追加；2032 提供全量文本供复制） |
+| `session/await_input` | 激活输入区（`waiting.kind=interview`）；`waiting.kind=proposal` 切换确认面板 |
+| `session/status`（`waiting` 含 `proposal_ids`） | 结合 `session/message` 自然语言提案描述，批量应用 / 拒绝后 `proposal/respond` |
+| `tree/changed` | 刷新取值树视图（`query/tree`） |
+| `session/status`（`current_unit` / `units_done` / `stage` 等字段） | 刷新进度与当前单元 |
+| `gaps/changed` | 缺口清单展示（按需 `query/gaps`；自然语言结论已随 `session/message` 显示） |
+| `conversions/changed` | 转换日志面板（`query/conversions`） |
+| `prd/changed` | 文档预览 + 导出（`query/prd`） |
+| `session/status`（`ended` 字段） | 返回会话列表 |
+| `log` | toast 展示（按 `status_code` 等级） |
 
 ## 5. 连接与会话管理
 

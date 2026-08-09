@@ -10,7 +10,8 @@
 4. **异步处理**：命令类请求（`input/send`、`command/*`、`proposal/respond`）只返回「已接受」；处理过程与结果全部经事件回流。查询类请求（`query/*`）同步返回。
 5. **后端无头且解耦**：后端只理解本协议，不理解任何用户命令与交互形态。命令语法、快捷键、界面表现都是前端对 API 的**重新解释与包装**（各前端交互定义见 [frontends/](../frontends/)），后端不承载。
 6. **自由文本只含数据，命令一律结构化**：API 不允许承载「命令执行」语义的自由文本。命令是结构化方法调用（`command/skip`、`command/finish`、`command/undo`、`proposal/respond`、`session/quit`）；`input/send` 的 `text` 是纯数据（访谈回复 / 补充信息），引擎原样转发给当前活跃节点，不做任何命令解析。
-7. **单一契约**：CLI 复用同一协议（进程内 transport），不存在第二套接口。协议是全系统唯一通信面。
+7. **最小切面原则**：CLI 复用同一协议（进程内 transport），不存在第二套接口。协议是全系统唯一通信面。
+8. **服务端消息模板化 + 状态码统一**：事件不按语义细分为 path 式事件名，收敛为 4 个通用模板——`log`（系统日志与错误）、`session/status`（会话状态，字段级颗粒度）、`session/message`（文本流）、`session/await_input`（等待输入信号）。模板之间信息零重合：文本只在 `session/message`、状态只在 `session/status`、等待信号只在 `session/await_input`、日志只在 `log`；`session/await_input` 为纯信号，阶段与上下文由前端从状态推断，彻底解耦。**大载荷（取值树 / 最终文档 / 缺口清单 / 转换日志）是设计例外**：每个大载荷有**成对**的专用通道——`xxx/changed` 变更信号（提醒前端主动拉取）+ `query/xxx` 专属查询，不得进入 `session/status` 或 `query/status`。全部状态码统一为四位码（等级位 + 业务域位 + 语义位，见 §11），贯穿 `log` 事件、`session/message` 分型与错误响应，无第二套码表。
 
 ## 2. 消息信封（JSON-RPC 2.0）
 
@@ -26,13 +27,13 @@
 
 ```json
 {"jsonrpc": "2.0", "id": 1, "result": {"accepted": true}}
-{"jsonrpc": "2.0", "id": 1, "error": {"code": 1002, "message": "当前状态不接受输入", "data": {"stage": "finished"}}}
+{"jsonrpc": "2.0", "id": 1, "error": {"code": 4102, "message": "当前状态不接受输入", "data": {"stage": "finished"}}}
 ```
 
 **通知**（server → client，无 `id`，即事件）：
 
 ```json
-{"jsonrpc": "2.0", "method": "message/chunk", "params": {"session_id": "s-abc", "message_id": "m-1", "delta": "请描述"}}
+{"jsonrpc": "2.0", "method": "session/message", "params": {"session_id": "s-abc", "message_id": "m-1", "status_code": 2031, "delta": "请描述"}}
 ```
 
 约定：
@@ -65,7 +66,7 @@
 | 结果 | 类型 | 说明 |
 |------|------|------|
 | `session_id` | string | 会话标识，后续所有消息复用 |
-| `snapshot` | SessionSnapshot | 初始状态快照（定义见 §4.4 `query/status`） |
+| `snapshot` | SessionSnapshot | 初始状态快照（定义见 §4.3 `query/status`） |
 
 #### `session/resume`
 
@@ -78,7 +79,7 @@
 | `snapshot` | SessionSnapshot | 恢复后快照 |
 | `tree` | ValueTreeNode | 完整取值树快照（前端可直接渲染，亦可后续用 `query/tree` 增量获取） |
 
-恢复后若存在挂起的 interrupt，引擎会补发 `input/required` / `proposal/pending`。
+恢复后若存在挂起的 interrupt，引擎会补发 `session/await_input`（阶段与等待上下文经 `session/status` 的 `stage` / `waiting` 字段携带）。
 
 #### `session/list`
 
@@ -96,7 +97,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|
 | `session_id` | string | 是 |
 
-删除会话及 checkpoint。已删除会话再次 `resume` 报错误 1001。
+删除会话及 checkpoint。已删除会话再次 `resume` 报错误 4001。
 
 #### `session/quit`
 
@@ -104,7 +105,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|
 | `session_id` | string | 是 |
 
-保存 checkpoint 后结束会话。随后推送事件 `session/ended {reason: "quit"}`。
+保存 checkpoint 后结束会话。随后推送 `session/status`（`fields` 含 `ended`）。
 
 ### 4.2 交互
 
@@ -120,7 +121,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 | `accepted` | boolean | 是否接受 |
 | `queued` | boolean | `true` 表示引擎计算中，输入已暂存，将在下一个中断点回放（「非等待期输入不丢弃」引擎机制，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) §3） |
 
-错误：会话不存在（1001）、既非等待也非计算中（1002）。
+错误：会话不存在（4001）、既非等待也非计算中（4102）。
 
 #### `command/skip`
 
@@ -128,7 +129,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|------|
 | `session_id` | string | 是 | |
 
-语义：跳过当前访谈单元——跳过评审、强制转录（缺失处标「待补充」）、进入下一单元，**不结束整个流程**。仅访谈阶段且存在当前单元时可用，否则错误 1003。
+语义：跳过当前访谈单元——跳过评审、强制转录（缺失处标「待补充」）、进入下一单元，**不结束整个流程**。仅访谈阶段且存在当前单元时可用，否则错误 4103。
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
@@ -140,7 +141,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|------|
 | `session_id` | string | 是 | |
 
-语义：结束访谈阶段，进入全文档审核。与 `command/skip` 语义互斥：skip 只跳过当前单元，finish 才终止访谈阶段。仅访谈阶段可用，否则错误 1003。
+语义：结束访谈阶段，进入全文档审核。与 `command/skip` 语义互斥：skip 只跳过当前单元，finish 才终止访谈阶段。仅访谈阶段可用，否则错误 4103。
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
@@ -152,7 +153,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|------|
 | `session_id` | string | 是 | |
 
-语义：回退最近一次转录 / 转换。无可回退记录时错误 1003。
+语义：回退最近一次转录 / 转换。无可回退记录时错误 4103。
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
@@ -163,34 +164,38 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `session_id` | string | 是 | |
-| `proposal_ids` | string[] | 是 | 待处理提案 id（来自 `proposal/pending`），一次可多条 |
+| `proposal_ids` | string[] | 是 | 待处理提案 id（来自 `session/status` 的 `waiting.proposal_ids`），一次可多条 |
 | `action` | string | 是 | `apply`（确认执行）\| `reject`（拒绝） |
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
 | `accepted` | boolean | 是否接受 |
 
-错误：提案不存在或状态已变（1004）。
+错误：提案不存在或状态已变（4404）。
 
 ### 4.3 查询（同步返回）
 
 #### `query/status`
 
-| 参数 | 类型 | 必填 |
-|------|------|------|
-| `session_id` | string | 是 |
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `session_id` | string | 是 | |
+| `fields` | string[] | 否 | 需要返回的常规字段白名单（见 §5.2 字段表）；缺省返回全部常规字段。**大载荷字段（`tree` / `final_prd` / `gaps` / `conversion_log`）禁止在此列出**——大载荷一律走专属查询（`query/tree` / `query/prd` / `query/gaps` / `query/conversions`） |
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
 | `session_id` | string | |
+| `fields` | string[] | 本次返回的字段列表（与请求 `fields` 一致；缺省为全部常规字段） |
 | `stage` | string | `interview` \| `document_review` \| `polish` \| `finished` |
 | `status` | string | `running`（计算中）\| `waiting`（有挂起中断）\| `idle` |
 | `current_unit` | object \| null | `{path, title}`，访谈阶段当前单元 |
 | `units_done` | string[] | 已完成单元路径 |
-| `waiting` | object | `{kind: "interview" \| "proposal" \| "none", pending_proposals?: [...]}` |
+| `waiting` | object | `{kind: "interview" \| "proposal" \| "none", proposal_ids?: string[]}` |
 | `document_review` | object \| null | `{passed: boolean, gap_count: number}` |
 | `iterations` | object | `{document_review: number}`（全文档审核往返计数） |
 | `template_title` | string | |
+| `ended` | object \| null | `{reason: "quit"\|"finished"\|"error", detail?}` 会话已结束 |
+| `revision` | number | 状态版本号（单调递增，见 §5.2） |
 | `created_at` / `updated_at` | string | ISO8601 |
 
 #### `query/tree`
@@ -228,6 +233,43 @@ ValueTreeNode：`{path, title, node_type: "group"|"repeat"|"field", field_type?:
 |------|------|------|
 | `template` | TemplateMeta | 顶层章节数组（`{title, tier?, children…}`，含各节点类型与 `field_type`），供前端渲染提纲/表单；完整契约见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) |
 
+#### `query/prd`
+
+大载荷专属查询（与 `prd/changed` 成对）：引擎只经 `prd/changed` 通知变更，前端按需调用本方法拉取；`query/status` 不承载。
+
+| 参数 | 类型 | 必填 |
+|------|------|------|
+| `session_id` | string | 是 |
+
+| 结果 | 类型 | 说明 |
+|------|------|------|
+| `markdown` | string | 最终 PRD Markdown（确定性基线 + 已应用润色转换；转换日志与「审核未决清单」（如有）由引擎渲染时附于文末） |
+| `unresolved_gaps` | object[] \| null | 审核未决清单（全文档审核超限时存在） |
+
+#### `query/gaps`
+
+大载荷专属查询（与 `gaps/changed` 成对）。审核结论的自然语言描述经 `session/message` 流式推送，结构化清单按需经本方法拉取。
+
+| 参数 | 类型 | 必填 |
+|------|------|------|
+| `session_id` | string | 是 |
+
+| 结果 | 类型 | 说明 |
+|------|------|------|
+| `gap_list` | object[] | 最近一次全文档审核的结构化缺口清单 `[{path, dimension, reason}]`（path 恒指字段路径，见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) 寻址一节） |
+
+#### `query/conversions`
+
+大载荷专属查询（与 `conversions/changed` 成对）。
+
+| 参数 | 类型 | 必填 |
+|------|------|------|
+| `session_id` | string | 是 |
+
+| 结果 | 类型 | 说明 |
+|------|------|------|
+| `conversion_log` | object[] | 润色转换日志：`[{id, position, scenario, before, after, risk, reason, evaluation?}]`，含已应用与已丢弃记录，支持复核与回退 |
+
 ### 4.4 配置
 
 #### `config/get`
@@ -246,30 +288,55 @@ v1 不提供 `config/set`；配置变更经配置文件后重启生效。
 
 ## 5. 事件目录（server → client 通知）
 
-事件是唯一的异步回流通道。前端必须处理与自身形态相关的事件；未处理的事件应忽略（不报错）。
+事件是唯一的异步回流通道。**事件收敛为 4 个通用模板 + 4 个大载荷变更信号**（设计原则 8），模板之间信息零重合。前端必须处理与自身形态相关的事件；未处理的事件应忽略（不报错）。
+
+### 5.1 通用模板
 
 | 事件 | 参数（`params`） | 语义 |
 |------|------------------|------|
-| `session/ready` | `{session_id, snapshot}` | 创建 / 恢复会话完成 |
-| `node/entered` | `{session_id, stage, node}` | 进入某阶段节点（`stage`: `interview` \| `document_review` \| `polish`） |
-| `node/exited` | `{session_id, stage, node}` | 离开某阶段节点 |
-| `status/changed` | `{session_id, snapshot}` | 当前单元 / 已完单元 / 阶段变化（快照同 `query/status`） |
-| `tree/changed` | `{session_id, path?}` | 取值树转录 / 覆盖完成；前端如需最新树自行 `query/tree` |
-| `message/chunk` | `{session_id, message_id, delta}` | agent 回复流式增量（顺序即文本顺序） |
-| `message/complete` | `{session_id, message_id, text}` | 一条流式消息结束（携带全量文本） |
-| `input/required` | `{session_id, kind: "interview"\|"proposal", context: {current_unit, prompt?}}` | 引擎挂起等待输入；`kind=proposal` 时详情由 `proposal/pending` 携带 |
-| `proposal/pending` | `{session_id, proposals: [{id, position, original, target, scenario, risk: "high"\|"low", reason}]}` | 高风险转换待用户确认（低风险自动执行，经 `polish/progress` 通报） |
-| `document/reviewed` | `{session_id, passed, gap_list: [{path, dimension, reason}]}` | 全文档审核结果 |
-| `polish/progress` | `{session_id, applied: [{id, position, scenario}], rejected: [{id, position, reason}]}` | 润色转换应用 / 丢弃记录 |
-| `prd/rendered` | `{session_id, markdown, conversion_log, unresolved_gaps?}` | 最终 PRD 产出；会话进入 `finished` 但未销毁，可继续查询 |
-| `session/ended` | `{session_id, reason: "quit"\|"finished"\|"error", detail?}` | 会话结束 |
-| `error` | `{session_id?, code, message, data?}` | 引擎内部错误推送（请求失败不在此列，走 JSON-RPC error 响应） |
-| `log` | `{session_id?, level, message}` | 后端日志通道（stdio 绑定走 stderr，见 [STDIO.md](./STDIO.md)） |
+| `log` | `{session_id?, status_code, message, data?}` | 系统日志与错误（合并原 `error` / `log`）：等级由 `status_code` 千位推断（1xxx debug / 2xxx info / 3xxx warn / 4xxx error / 5xxx fatal，见 §11）；请求失败不在此列，走 JSON-RPC error 响应；stdio 绑定落 stderr（见 [STDIO.md](./STDIO.md)） |
+| `session/status` | `{session_id, status_code: 2001, fields: string[], revision: number, …}` | **唯一会话状态通道**（合并原 `session/ready` / `status/changed` / `node/entered` / `node/exited` / `session/ended`）：状态变化即推送，只带**变化/相关字段**，`fields` 声明本消息包含的字段（白名单见 5.2）；创建 / 恢复后首条推全字段快照；会话结束时 `fields` 含 `ended`。大载荷不在此通道 |
+| `session/message` | `{session_id, message_id, status_code: 2031\|2032, delta?, text?}` | **唯一文本流通道**（合并原 `message/chunk` / `message/complete`）：agent 回复流式推送；2031 = chunk（增量，顺序即文本顺序），2032 = complete（携带全量文本）；前端按 `message_id` 拼接（见 §6） |
+| `session/await_input` | `{session_id, status_code: 2002}` | **唯一「可回复」信号**（合并原 `input/required` / `proposal/pending`）：纯信号——引擎挂起，前端可以发送进一步消息（`input/send` 或 `proposal/respond`）。处于什么阶段、等待何种输入完全由前端从 `session/status` 的 `stage` / `waiting` 字段推断，本消息不携带任何上下文 |
+
+### 5.2 `session/status` 字段表（fields 白名单）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `stage` | string | `interview` \| `document_review` \| `polish` \| `finished` |
+| `node` | string | 当前阶段节点（如 `interview_agent` / `document_review_agent` / `polish_agent`） |
+| `status` | string | `running`（计算中）\| `waiting`（有挂起中断）\| `idle` |
+| `current_unit` | object \| null | `{path, title}`，访谈阶段当前单元 |
+| `units_done` | string[] | 已完成单元路径 |
+| `waiting` | object | `{kind: "interview"\|"proposal"\|"none", proposal_ids?: string[]}`——等待种类与轻量元数据；`kind=proposal` 时 `proposal_ids` 供 `proposal/respond` 引用 |
+| `document_review` | object \| null | `{passed: boolean, gap_count: number}`（结构化缺口清单不在此列，见 5.3） |
+| `iterations` | object | `{document_review: number}`（全文档审核往返计数） |
+| `template_title` | string | |
+| `ended` | object \| null | `{reason: "quit"\|"finished"\|"error", detail?}` 会话已结束 |
+| `revision` | number | 状态版本号（随每次推送单调递增，随 checkpoint 持久化） |
+| `created_at` / `updated_at` | string | ISO8601 |
+
+> **revision 与同步**：前端记录已见 `revision`，发现跳号（说明中间有状态事件未处理）应主动 `query/status` 对齐。事件经可靠传输送达（WebSocket / stdio 语义），本机制只用于检测前端处理缺口，**不需要逐事件 ack**——状态权威在引擎（checkpoint），`query/status` 幂等对齐即可。
+>
+> **大载荷禁入**：`tree` / `final_prd` / `gaps` / `conversion_log` 不允许出现在 `fields` 中（推送与查询均同），一律走 5.3 的成对通道。
+
+### 5.3 大载荷变更信号（设计原则例外）
+
+大载荷不进 `session/status` / `query/status`，每个载荷有**成对**的专用通道：变更信号（本表）+ 专属查询（§4.3）。信号为纯提示，载荷一律按需拉取，信号与载荷零重合。
+
+| 事件 | 参数（`params`） | 语义 | 拉取 |
+|------|------------------|------|------|
+| `tree/changed` | `{session_id, path?}` | 取值树转录 / 覆盖完成（`path` 为变更位置，可选） | `query/tree` |
+| `prd/changed` | `{session_id}` | 最终 PRD 已产出 / 变更 | `query/prd` |
+| `gaps/changed` | `{session_id}` | 全文档审核缺口清单已产生（审核结论的自然语言描述经 `session/message` 流式推送） | `query/gaps` |
+| `conversions/changed` | `{session_id}` | 润色转换日志更新 | `query/conversions` |
+
+> 封闭性条款：任何新增大载荷字段必须**成对**提供（`xxx/changed` + `query/xxx`），不得塞入 `session/status` 或 `query/status`。
 
 ## 6. 流式输出语义
 
-- agent 回复（访谈提问 / 答复、审核结论、润色输出）一律流式推送：若干 `message/chunk` → 一条 `message/complete`。
-- 前端按 `message_id` 拼接 `delta`；`message/complete` 的 `text` 为全量文本（供复制/落盘）。
+- agent 回复（访谈提问 / 答复、审核结论、润色提案描述等）一律流式推送：若干 `session/message`（2031 chunk）→ 一条 `session/message`（2032 complete）。
+- 前端按 `message_id` 拼接 `delta`；2032 的 `text` 为全量文本（供复制/落盘）。
 - 单会话同一时刻至多一条流式消息（会话串行执行，见 §8）。
 
 ## 7. 交互定义归属
@@ -284,7 +351,7 @@ v1 不提供 `config/set`；配置变更经配置文件后重启生效。
 
 ## 8. 并发与排队语义
 
-- **单会话串行**：一个会话内同一时刻只处理一个请求；引擎计算期间到达的 `input/send` 被接受并暂存（`queued: true`），其余请求返回 1005「会话忙」。
+- **单会话串行**：一个会话内同一时刻只处理一个请求；引擎计算期间到达的 `input/send` 被接受并暂存（`queued: true`），其余请求返回 4005「会话忙」。
 - **跨会话并行**：不同会话互不影响，可并发处理。
 - **多前端竞争**：同一会话被多连接订阅时，事件广播到全部订阅连接；竞态下的输入先到先得（v1 简化）。
 
@@ -299,29 +366,35 @@ v1 不提供 `config/set`；配置变更经配置文件后重启生效。
 ```
 client → session/create {}
 server ← {result: {session_id, snapshot}}
-server → session/ready {snapshot}
-server → node/entered {stage: "interview", node: "draft"}
-server → message/chunk {delta: "请…"} × N
-server → message/complete {text: "请…"}
-server → input/required {kind: "interview", context: {current_unit: {path: "3.2.1", title: "核心功能 1"}}}
+server → session/status {status_code: 2001, fields: [全部常规字段], revision: 1, stage: "interview", …}
+server → session/status {status_code: 2001, fields: ["node"], node: "interview_agent"}
+server → session/message {status_code: 2031, delta: "请…"} × N
+server → session/message {status_code: 2032, text: "请…"}
+server → session/status {status_code: 2001, fields: ["current_unit", "waiting"], current_unit: {path: "3.2.1", title: "核心功能 1"}, waiting: {kind: "interview"}}
+server → session/await_input {status_code: 2002}
 client → input/send {text: "..."}
 server ← {result: {accepted: true, queued: false}}
-server → message/chunk × N → message/complete（agent 答复）
+server → session/message 2031 × N → 2032（agent 答复）
 server → tree/changed {path: "3.2.1"}
-server → input/required（下一单元）
+server → session/status {fields: ["current_unit"], current_unit: {path: "3.2.2", title: "核心功能 2"}}（下一单元）
+server → session/await_input
 ```
 
 ### 10.2 润色确认
 
 ```
-server → node/entered {stage: "polish", node: "polish_agent"}
-server → input/required {kind: "proposal", context: {current_unit: null}}
-server → proposal/pending {proposals: [{id: "p1", scenario: "B1", risk: "high", ...}]}
+server → session/status {fields: ["stage", "node"], stage: "polish", node: "polish_agent"}
+server → session/message 2031 × N → 2032（自然语言提案描述）
+server → session/status {fields: ["waiting"], waiting: {kind: "proposal", proposal_ids: ["p1"]}}
+server → session/await_input {status_code: 2002}
 client → proposal/respond {proposal_ids: ["p1"], action: "apply"}
 server ← {result: {accepted: true}}
-server → polish/progress {applied: [{id: "p1", ...}], rejected: []}
-server → prd/rendered {markdown: "..."}
-server → session/ended {reason: "finished"}
+server → conversions/changed
+server → session/status {fields: ["stage"], stage: "finished"}
+server → prd/changed
+client → query/prd {session_id}
+server ← {result: {markdown: "...", unresolved_gaps: null}}
+server → session/status {fields: ["ended"], ended: {reason: "finished"}}
 ```
 
 ### 10.3 恢复会话
@@ -329,26 +402,72 @@ server → session/ended {reason: "finished"}
 ```
 client → session/resume {session_id}
 server ← {result: {snapshot, tree}}
-server → session/ready
+server → session/status {status_code: 2001, fields: [全部常规字段], revision: N, …}
 （若挂起 interrupt）
-server → input/required / proposal/pending
+server → session/status {fields: ["waiting"], waiting: {kind: "interview" | "proposal", …}}
+server → session/await_input
 ```
 
-## 11. 错误码
+## 11. 状态码（四位码体系）
 
-| code | 含义 |
+全部状态码统一为四位码 `ABCD`，贯穿 `log` 事件、`session/message` 分型与 JSON-RPC error 响应，无第二套码表（设计原则 8）。
+
+### 11.1 等级位（千位）
+
+| 千位 | 等级 | 用途 |
+|------|------|------|
+| 1 | debug | 诊断日志（`log` 事件） |
+| 2 | info | 正常业务事件与消息（事件通道、`session/message` 分型） |
+| 3 | warn | 警告（重试中、接近上限、兜底回退） |
+| 4 | error | 可恢复错误（请求被拒、业务错误） |
+| 5 | fatal | 致命错误（引擎无法继续 / 启动阶段拒绝） |
+
+### 11.2 业务域位（百位）
+
+| 百位 | 域 | 说明 |
+|------|-----|------|
+| 0 | session | 会话生命周期 |
+| 1 | stage | 阶段与节点 |
+| 2 | tree | 取值树 |
+| 3 | message | 文本消息流 |
+| 4 | polish | 润色 / 提案 / 转换 |
+| 5 | review | 全文档审核 / 缺口 |
+| 6 | protocol | 协议与传输 |
+| 7 | template | 模板 |
+| 8 | provider | LLM 提供商 |
+| 9 | engine | 引擎 / 持久化 |
+
+### 11.3 码表
+
+| code | 语义 |
 |------|------|
-| -32700 | JSON 解析错误 |
-| -32600 | 无效请求 |
-| -32601 | 方法不存在 |
-| -32602 | 参数无效 |
-| -32603 | 内部错误 |
-| 1001 | 会话不存在 |
-| 1002 | 当前状态不接受输入（非等待、非计算中） |
-| 1003 | 结构化操作（`command/skip` / `command/finish` / `command/undo`）在当前阶段不可用 |
-| 1004 | 提案不存在或状态已变 |
-| 1005 | 会话忙（另一请求处理中；`input/send` 除外——它被暂存而非拒绝） |
-| 2001 | 模板不合法（加载时 Pydantic 校验失败，启动阶段即拒绝并报错定位，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 约束 4） |
-| 2002 | 配置错误（缺 API Key 等） |
-| 3001 | LLM 提供商调用失败（重试耗尽） |
-| 3002 | checkpoint 持久化失败 |
+| 2001 | info / session：状态变更（`session/status` 事件） |
+| 2002 | info / session：等待输入（`session/await_input` 事件） |
+| 2031 | info / message：消息流 chunk（`session/message` 增量） |
+| 2032 | info / message：消息流 complete（`session/message` 全量） |
+| 2220 | info / tree：`tree/changed` |
+| 2420 | info / polish：`prd/changed` |
+| 2422 | info / polish：`conversions/changed` |
+| 2520 | info / review：`gaps/changed` |
+| 3101 | warn / provider：LLM 调用失败，重试中 |
+| 3201 | warn / tree：P2 推断失败，回退 `default` / 留「待补充」 |
+| 3301 | warn / polish：保真评估不通过，提案修订中 |
+| 3401 | warn / polish：修订超限，提案丢弃 |
+| 3501 | warn / review：全文档审核接近最大轮数 |
+| 4001 | error / session：会话不存在 |
+| 4005 | error / session：会话忙（另一请求处理中；`input/send` 除外——它被暂存而非拒绝） |
+| 4102 | error / stage：当前状态不接受输入（非等待、非计算中） |
+| 4103 | error / stage：结构化操作（`command/skip` / `command/finish` / `command/undo`）在当前阶段不可用 |
+| 4404 | error / polish：提案不存在或状态已变 |
+| 4601 | error / protocol：JSON 解析错误 |
+| 4602 | error / protocol：无效请求 |
+| 4603 | error / protocol：方法不存在 |
+| 4604 | error / protocol：参数无效 |
+| 4803 | error / provider：LLM 调用失败（重试耗尽） |
+| 4905 | error / engine：请求处理内部错误 |
+| 5701 | fatal / template：模板不合法（加载时 Pydantic 校验失败，启动阶段即拒绝并报错定位，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 约束 4） |
+| 5802 | fatal / provider：配置错误（缺 API Key 等） |
+| 5901 | fatal / engine：引擎内部故障 |
+| 5902 | fatal / engine：checkpoint 持久化失败 |
+
+> debug 级（1xxx）码由实现按业务域扩展，如 1001（debug / session：会话操作追踪）。

@@ -32,7 +32,7 @@
 
 ### 2.3 流式输出
 
-- 对话流按 `message_id` 拼接 `message/chunk` 增量渲染；`message/complete` 提供全量文本（供复制）。
+- 对话流按 `message_id` 拼接 `session/message`（2031 chunk）增量渲染；2032（complete）提供全量文本（供复制）。
 
 ### 2.4 中断与退出语义
 
@@ -45,31 +45,31 @@
 |------|------|---------|
 | 会话列表 | 历史会话（模板、状态、时间） | `session/list` |
 | 访谈视图 | 对话流 + 输入框、当前单元提示、已完单元进度 | 事件流 + `query/status` |
-| 润色确认 | 高风险转换提案逐条确认（apply / reject，可批量） | `proposal/pending` → `proposal/respond` |
-| 取值树 | `query/tree` 树形浏览 | `query/tree` |
-| 文档预览 | `prd/rendered` 的 Markdown（只读，可导出） | 事件 |
+| 润色确认 | 高风险转换提案逐条确认（apply / reject，可批量）——自然语言描述来自 `session/message`，`proposal_ids` 来自 `session/status` 的 `waiting` | `session/message` + `session/status` → `proposal/respond` |
+| 取值树 | `query/tree` 树形浏览 | `tree/changed` → `query/tree` |
+| 文档预览 | `query/prd` 的 Markdown（只读，可导出） | `prd/changed` → `query/prd` |
 
 ## 4. 必须处理的事件 → 行为
 
 | 事件 | 行为 |
 |------|------|
-| `session/ready` | 进入访谈视图 |
-| `message/chunk` / `message/complete` | 流式渲染到对话流（按 `message_id` 拼接） |
-| `input/required` | 显示输入框（`kind=interview`）；`kind=proposal` 切换确认面板 |
-| `proposal/pending` | 列出提案，`y`/`n` 或批量选择 |
-| `tree/changed` | 若有打开的取值树视图则刷新 |
-| `status/changed` | 刷新当前单元 / 进度栏 |
-| `document/reviewed` | 显示审核结果与缺口清单 |
-| `polish/progress` | 刷新转换日志面板 |
-| `prd/rendered` | 切换到文档预览，提供导出（写文件 / 复制） |
-| `session/ended` | 返回会话列表 |
-| `error` | 错误浮层 |
+| `session/status`（首条全字段） | 进入访谈视图 |
+| `session/message`（2031 / 2032） | 流式渲染到对话流（按 `message_id` 拼接） |
+| `session/await_input` | 显示输入框（`stage` / `waiting.kind=interview`）；`waiting.kind=proposal` 切换确认面板 |
+| `session/status`（`waiting` 含 `proposal_ids`） | 结合 `session/message` 自然语言提案描述，`y`/`n` 或批量选择后 `proposal/respond` |
+| `tree/changed` | 若有打开的取值树视图则刷新（`query/tree`） |
+| `session/status`（`current_unit` / `units_done` / `stage` 等字段） | 刷新当前单元 / 进度栏 |
+| `gaps/changed` | 显示审核结果与缺口清单（按需 `query/gaps`；自然语言结论已随 `session/message` 显示） |
+| `conversions/changed` | 刷新转换日志面板（`query/conversions`） |
+| `prd/changed` | 切换到文档预览（`query/prd`），提供导出（写文件 / 复制） |
+| `session/status`（`ended` 字段） | 返回会话列表 |
+| `log` | 错误浮层（按 `status_code` 等级） |
 
 ## 5. 进程生命周期（子进程管理）
 
 1. spawn `yespm-server --db <path>` → 等待 `server/ready` 握手（[STDIO.md](../api/STDIO.md) §3）。
-2. 正常退出：发送 `session/quit` → 等待 `session/ended` → 关闭 stdin。
-3. 崩溃恢复：子进程非 0 退出 → 提示用户 → 重新 spawn → 对活跃会话 `session/resume`（挂起中断由引擎补发 `input/required`）。
+2. 正常退出：发送 `session/quit` → 等待 `session/status`（`ended` 字段）→ 关闭 stdin。
+3. 崩溃恢复：子进程非 0 退出 → 提示用户 → 重新 spawn → 对活跃会话 `session/resume`（挂起中断由引擎补发 `session/await_input`）。
 4. 前端退出：EOF 关闭子进程，防止孤儿进程。
 
 ## 6. 与 CLI 的差异

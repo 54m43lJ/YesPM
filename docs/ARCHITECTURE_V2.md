@@ -19,10 +19,11 @@
 ┌──────────────────────────────────────────────────┐
 │ 协议层 JSON-RPC 2.0（单一契约、双传输可插拔）      │
 │  方法：session/*  input/send  command/skip         │
-│        command/finish  command/undo               │
-│        proposal/respond  query/*                  │
-│  事件：message/*  input/required  proposal/pending │
-│        tree/changed  document/reviewed  ...       │
+│        command/finish  command/undo                 │
+│        proposal/respond  query/*                    │
+│  事件：log  session/status  session/message          │
+│        session/await_input  tree/changed             │
+│        prd/changed  gaps/changed  conversions/changed│
 └──────────────────────┬────────────────────────────┘
                        ▼
 ┌──────────────────────────────────────────────────┐
@@ -40,7 +41,7 @@
 
 3. **interrupt + checkpoint 为交互核心**：人工介入（interrupt）与断点续聊（checkpoint）是本系统的核心需求；会话状态统一由 checkpointer 持久化，不另建状态管理。
 
-4. **协议优先、事件驱动、后端无头**：语义与传输解耦（协议层可插拔传输），**单一契约、多端复用**，不存在第二套接口；后端是唯一状态所有者，状态变化一律事件推送，前端零轮询、零状态推断；后端只理解 API，不理解任何用户命令与交互形态——命令语法、快捷键、界面表现都是前端对 API 的重新解释与包装。
+4. **协议优先、事件驱动、后端无头**：语义与传输解耦（协议层可插拔传输），**单一契约、多端复用**，不存在第二套接口；后端是唯一状态所有者，状态变化一律事件推送，前端零轮询、零状态推断；事件收敛为少量通用模板（`log` / `session/status` / `session/message` / `session/await_input`），大载荷以成对的变更信号 + 专属查询提供（消息模板化见 [api/PROTOCOL.md](./api/PROTOCOL.md) 原则 8）；后端只理解 API，不理解任何用户命令与交互形态——命令语法、快捷键、界面表现都是前端对 API 的重新解释与包装。
 
 5. **交互定义前端冗余、允许分叉**：每个前端各自维护一份完整交互定义（[frontends/](./frontends/)）。
 
