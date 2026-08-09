@@ -1,0 +1,92 @@
+# 默认 PRD 模板（TEMPLATE_SPEC 契约；全流程唯一真源：访谈指引 + 渲染脚手架）
+- title: 文档信息
+  tier: P1                      # 章节级访谈单元
+  children:
+    - title: 产品名称
+      required: true
+    - title: 产品代号
+      tier: P0                  # 从 P1 章节拆出，字段级访谈单元
+    - title: 版本号
+      default: 1.0.0
+    - title: 编写日期
+      default: 待定
+
+- title: 产品概述
+  tier: P0                      # P0 章节：其中字段逐个单独访谈
+  children:
+    - title: 一句话定位
+      required: true
+      hint: 用一句话说清产品是什么、解决谁的什么问题
+    - title: 产品背景与目标
+      required: true
+      hint: 为什么做这个产品、要达成什么业务目标，必要时追问衡量指标
+    - title: 目标用户
+      required: true
+      hint: 谁在用、解决谁的什么问题，必要时追问典型用户画像
+    - title: 使用场景
+      hint: 典型使用场景与流程起点
+
+- title: 功能需求
+  children:
+    - title: 功能模块划分
+      field_type: table
+      columns:
+        - 模块名称
+        - 模块职责
+      required: true
+      hint: 按模块列出本产品的功能组成与各自职责
+    - title: 核心功能详述
+      item_label: 功能
+      tier: P1                  # repeat 章节级访谈单元：实例数量在访谈中自然确定
+      children:
+        - title: 功能名称
+          required: true
+        - title: 功能描述
+          hint: 一句话讲清做什么，随后可追问操作流程与异常场景
+        - title: 用户操作流程
+          children:
+            - title: 主流程
+              hint: 用户从入口到完成的关键操作步骤
+            - title: 异常分支
+              hint: 失败、超时、权限不足等异常路径的处理
+        - title: 优先级
+          field_type: enum
+          enum_values: [P0, P1, P2]
+        - title: 验收标准
+          required: true
+          hint: 可验证的完成条件，建议逐条列明
+    - title: 边界与异常规则
+      hint: 全局性边界条件、错误码与容错规则
+
+- title: 非功能需求
+  children:
+    - title: 性能指标
+      hint: 响应时间、吞吐量、并发量等量化指标
+    - title: 安全与合规
+      preserve: true            # 润色禁区：原文引用，禁止任何表示转换
+      hint: 安全机制与合规要求
+    - title: 可用性要求
+      hint: 可用性目标与运维要求
+
+- title: 风险登记
+  field_type: table
+  columns:
+    - 风险描述
+    - 影响评估
+    - 应对措施
+  hint: 识别关键风险并登记影响与应对
+
+- title: 版本计划
+  item_label: 里程碑
+  tier: P2                      # 不访谈：收尾时依据上下文推断，推不出取 default 或待补充
+  children:
+    - title: 里程碑名称
+    - title: 目标日期
+    - title: 交付内容
+
+- title: 术语表
+  field_type: table
+  columns:
+    - 术语
+    - 含义
+  tier: P2

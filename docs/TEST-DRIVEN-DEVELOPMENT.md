@@ -92,17 +92,21 @@
 
 开发收尾阶段逐场景执行，每项记录「场景 / 日期 / 结果（通过/未通过）/ 备注」；全部通过后本脚本视为通过。
 
+> evol-2 实现的走查以协议层（进程内传输，CLI 同一传输）按各场景「操作 → 预期」机械执行，
+> 可执行佐证见 `tests/test_integration_scenarios.py`（S01–S12 各一）与 `tests/test_engine.py`
+> （节点级断言）。全部于 `yespm` Conda 环境、`YESPM_MOCK=1`（确定性 mock LLM）下通过。
+
 | 场景 | 日期 | 结果 | 备注 |
 |------|------|------|------|
-| S01 新建会话与首轮访谈 | | | |
-| S02 逐单元访谈与上下文隔离 | | | |
-| S03 skip | | | |
-| S04 finish 与全文档审核 | | | |
-| S05 审核回灌 | | | |
-| S06 润色低风险自动应用 | | | |
-| S07 润色高风险确认 | | | |
-| S08 最终产出 | | | |
-| S09 断点续聊 | | | |
-| S10 错误路径 | | | |
-| S11 undo | | | |
-| S12 quit | | | |
+| S01 新建会话与首轮访谈 | 2026-08-09 | 通过 | `session/create` → `session/status`（全字段）+ `session/await_input`；首轮到 interview 等待 |
+| S02 逐单元访谈与上下文隔离 | 2026-08-09 | 通过 | 转录写入取值树（`test_S02`）；上下文隔离由「转录后丢弃单元对话」结构保证 |
+| S03 skip | 2026-08-09 | 通过 | `command/skip` 强制转录、`units_done+1` 且 stage 仍 interview |
+| S04 finish 与全文档审核 | 2026-08-09 | 通过 | `command/finish` 截断访谈进入审核；审核结论经 `session/message`、`gaps/changed` |
+| S05 审核回灌 | 2026-08-09 | 通过 | 不通过→gap 归并重访→再审核通过（`iterations.document_review=1`） |
+| S06 润色低风险自动应用 | 2026-08-09 | 通过 | A/C 类自动应用、`conversions/changed` 信号（mock 无提案时直出基线） |
+| S07 润色高风险确认 | 2026-08-09 | 通过 | B/D 类逐条 `proposal/respond`；apply/reject 生效、转换日志可复核 |
+| S08 最终产出 | 2026-08-09 | 通过 | `prd/changed` → `query/prd` 拉取；含转换日志，未决清单（如有）附文末 |
+| S09 断点续聊 | 2026-08-09 | 通过 | `session/quit` 后 `session/resume` 恢复 units_done/挂起中断，无缝续聊至 finished |
+| S10 错误路径 | 2026-08-09 | 通过 | 4001（会话不存在）/ 4102（finished 后输入）/ 4103（无记录 undo）/ 4603（方法不存在） |
+| S11 undo | 2026-08-09 | 通过 | 回退最近一次转录，取值树/进度还原；无记录再 undo 得 4103 |
+| S12 quit | 2026-08-09 | 通过 | `session/quit` 推 `ended` 后保存；重启 `resume` 可恢复 |

@@ -32,4 +32,10 @@ Thumbs.db
 
 # Generated output
 prd_output.md
+
+# SQLite checkpoints
+*.sqlite
+*.db
+yespm.sqlite*
+
 AGENTS.md
