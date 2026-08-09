@@ -16,58 +16,6 @@
 
 > 澄清与按模板填写合并为单节点 `draft_prd`；中间态为与模板同构的取值树（非纯文本）。详见 [架构设计](docs/ARCHITECTURE_V2.md)。
 
-## 架构概览：前后端分离
-
-Python 后端为**无头会话引擎**，通过统一 JSON-RPC 协议服务三种前端：
-
-```
-CLI (Python, 进程内) ──┐
-TUI (TypeScript, stdio) ├──▶ 协议层 JSON-RPC 2.0 ──▶ 后端引擎 (LangGraph 三阶段流程)
-Web (JS/TS, WebSocket) ─┘
-```
-
-- 接口契约：[docs/api/PROTOCOL.md](docs/api/PROTOCOL.md)（方法 / 事件 / 错误码）
-- 后端架构：[docs/backend/ARCHITECTURE.md](docs/backend/ARCHITECTURE.md)
-- 各前端：[docs/frontends/](docs/frontends/)（CLI / TUI / Web）
-
-## 项目结构
-
-```
-YesPM/
-├── src/
-│   ├── nodes/                # LangGraph 节点实现
-│   │   ├── draft.py          # 模板驱动问答节点（澄清+填写合一）
-│   │   ├── review.py         # 字段级审核节点
-│   │   └── finalize.py       # 渲染输出节点
-│   ├── state/                # 状态定义
-│   │   └── prd_state.py      # PRDState 与取值树
-│   ├── tools/                # 工具函数
-│   │   ├── template_loader.py  # 加载 + Pydantic 校验模板 YAML
-│   │   └── renderer.py         # 取值树 → Markdown 渲染器
-│   └── graph.py              # LangGraph 图定义与路由
-├── prompts/                  # Prompt 与模板
-│   ├── template_schema.yaml  # 默认 PRD 模板（问答与渲染的唯一真源）
-│   ├── draft.txt
-│   ├── review.txt
-│   └── finalize.txt
-├── docs/
-│   ├── ARCHITECTURE_V2.md    # 系统总览：分层 + 设计原则（地图与理由）
-│   ├── TEMPLATE_SPEC.md      # 模板数据结构规范（自定义模板契约）
-│   ├── backend/
-│   │   └── ARCHITECTURE.md   # 后端：工作流程（三阶段）+ 引擎机制 + 技术栈结论
-│   ├── api/
-│   │   ├── PROTOCOL.md       # 接口协议语义层（方法 / 事件 / 错误码）
-│   │   ├── STDIO.md          # stdio 传输绑定 API（TUI 用）
-│   │   └── WEBSOCKET.md      # WebSocket 传输绑定 API（Web 用）
-│   └── frontends/
-│       ├── CLI.md            # CLI 前端架构（Python，参考实现）
-│       ├── TUI.md            # TUI 前端架构（TypeScript）
-│       └── WEB.md            # Web 前端架构（JS/TS）
-├── .env.example              # 环境变量示例
-├── requirements.txt          # Python 依赖
-└── README.md
-```
-
 ## 环境准备
 
 ### 1. 创建 Conda 环境

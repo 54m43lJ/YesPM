@@ -202,7 +202,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
-| `tree` | ValueTreeNode | 取值树（与模板同构，见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md)） |
+| `tree` | ValueTreeNode | 取值树（与模板同构，定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 取值树一节） |
 
 ValueTreeNode：`{path, title, node_type: "group"|"repeat"|"field", field_type?: "text"|"enum"|"table", value?, children?, instances?}`
 
@@ -314,7 +314,7 @@ server → input/required（下一单元）
 ### 10.2 润色确认
 
 ```
-server → node/entered {stage: "polish", node: "polish_generator"}
+server → node/entered {stage: "polish", node: "polish_agent"}
 server → input/required {kind: "proposal", context: {current_unit: null}}
 server → proposal/pending {proposals: [{id: "p1", scenario: "B1", risk: "high", ...}]}
 client → proposal/respond {proposal_ids: ["p1"], action: "apply"}
@@ -348,7 +348,7 @@ server → input/required / proposal/pending
 | 1003 | 结构化操作（`command/skip` / `command/finish` / `command/undo`）在当前阶段不可用 |
 | 1004 | 提案不存在或状态已变 |
 | 1005 | 会话忙（另一请求处理中；`input/send` 除外——它被暂存而非拒绝） |
-| 2001 | 模板不合法（Pydantic 校验失败，见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) 合规约束） |
+| 2001 | 模板不合法（加载时 Pydantic 校验失败，启动阶段即拒绝并报错定位，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 约束 4） |
 | 2002 | 配置错误（缺 API Key 等） |
 | 3001 | LLM 提供商调用失败（重试耗尽） |
 | 3002 | checkpoint 持久化失败 |

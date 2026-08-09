@@ -31,13 +31,33 @@
 ② 全文档审核阶段（Full Review）        ← document_review_agent（跨章节一致性 / 完整性 / 逻辑自洽）
    │
    ├─ 通过 ──────────────▶ ③ 渲染润色阶段（Render & Polish）
-   │                        确定性渲染 → 生成器-评估器润色（表格/图表化）→ Markdown
+   │                        确定性渲染 → 润色（polish_agent ↔ fidelity_evaluation_agent）→ Markdown
    │
    └─ 不通过 → 缺口清单 ──▶ 回到 ①，交由访谈 agent 从头处理（复用单元循环）
                               （最多 N 轮，超限强制进入 ③ 并附未决清单）
 ```
 
 **统一反馈机制**：缺口清单（gap list）是全流程唯一的反馈载体。单元成熟度评审与全文档审核都产出 `[{path, dimension, reason}]` 形式清单，回灌给访谈 agent，复用同一套单元循环。
+
+### 取值树：贯穿全流程的中间态数据
+
+`prd_draft` 是与模板同构的**取值树**（模板结构规范见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md)）：
+
+- 遍历模板实例化：`field` 叶子持有转录值或空，`group` 仅作结构，`repeat` 展开为实例数组。
+- interview_agent / unit_review_agent 的跨单元上下文、document_review_agent 的审核输入、渲染基线均基于此树。
+- 取值树是全流程唯一中间态，取代任何字符串形式的草稿。
+
+```
+模板树（template）            取值树（prd_draft）
+─────────────────            ─────────────────
+group                        group
+├─ field                     ├─ field → "已填值"
+├─ repeat                    ├─ repeat
+│  └─ children(单实例)        │  ├─ 实例1 (children 已实例化)
+│                            │  └─ 实例2
+└─ group                     └─ group
+   └─ field                     └─ field → 空
+```
 
 ### 2.1 访谈阶段（Interview Stage）
 
@@ -155,7 +175,7 @@ unit_review_agent ── 成熟度评审（本单元对话 + 取值树）──�
 ① 确定性渲染（基线 Markdown）      ← 程序性、确定性、可重现
    │
    ▼
-② 润色生成器（Polish Generator）   ← LLM
+② polish_agent（润色生成器）   ← LLM
    │  扫描基线，识别 A/B/C/D 场景，产出转换提案：
    │  {位置, 原形态, 目标形态, 场景类, 风险级别, 理由}
    │
@@ -165,38 +185,50 @@ unit_review_agent ── 成熟度评审（本单元对话 + 取值树）──�
    │  B/D 类（图表化/删减）  → 高风险，用户逐条确认
    │
    ▼
-④ 保真评估器（Fidelity Evaluator）← LLM
+④ fidelity_evaluation_agent（保真评估器）← LLM
    │  逐条校验提案：事实点不增、不减、不改
    │  ┌─ 通过 → 应用转换
-   │  └─ 不通过 → 反馈原因 → 回到 ② 生成器修订
+   │  └─ 不通过 → 反馈原因 → 回到 ② polish_agent 修订
    │            （最多 N 轮，仍不通过则丢弃该提案）
    │
    ▼
 ⑤ 输出最终 Markdown + 转换日志（附「审核未决清单」若有）
 ```
 
-#### 生成器-评估器架构（多 agent）
+#### 确定性基线渲染规则
+
+渲染器程序性遍历取值树，按模板结构确定性生成基线 Markdown（节点类型与 `field_type` 语义见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md)）：
+
+- 按深度产出标题层级（`#` / `##` / `###` …）。
+- `group` 只产出标题，不产出正文。
+- `repeat` 实例产出标题（形如 `{item_label} {序号}` 或实例自定义名）。
+- `field` 按 `field_type` 产出内容：`text` → 段落；`enum` → 所选项；`table` → Markdown 表格（首行为 `columns` 列名，其后每行一条记录）。
+- 空值字段按策略跳过或输出占位符。
+- 纯程序性、可重现；作为润色的**基线**，无提案区域不被触碰。
+
+#### polish_agent ↔ fidelity_evaluation_agent 架构（多 agent）
 
 | 角色 | 职责 |
 |------|------|
-| 转换生成器 | 扫描基线 → 识别场景 → 生成转换提案；接收评估器反馈后修订提案 |
-| 保真评估器 | 对每个提案做事实点核对（增/减/改），判定通过/不通过，不通过时给出具体修订意见 |
+| polish_agent | 扫描基线 → 识别场景 → 生成转换提案；接收 fidelity_evaluation_agent 反馈后修订提案 |
+| fidelity_evaluation_agent | 对每个提案做事实点核对（增/减/改），判定通过/不通过，不通过时给出具体修订意见 |
 
 - 两者形成迭代闭环：生成 → 评估 → 修订 → 再评估，最多 N 轮（默认 2），仍不通过则丢弃该转换提案
-- 评估器只负责保真（语义不变），不做风格与格式决策，职责单一
+- fidelity_evaluation_agent 只负责保真（语义不变），不做风格与格式决策，职责单一
 
 #### 关键设计决策
 
 1. **图表格式**：Mermaid（flowchart / stateDiagram / sequenceDiagram / gantt / erDiagram），嵌入 Markdown，git 友好
 2. **执行方式（分级策略）**：低风险（A/C）自动执行；高风险（B/D）用户逐条确认——确认也是 interrupt，一次可确认多条
-3. **保真校验**：生成器-评估器多 agent 架构，取代"规则化事实点比对"；评估器独立于生成器，避免自评
+3. **保真校验**：polish_agent ↔ fidelity_evaluation_agent 多 agent 架构，取代"规则化事实点比对"；fidelity_evaluation_agent 独立于 polish_agent，避免自评
 4. **确定性基线**：润色只在确定性渲染的基线上做增量转换，无提案区域不被触碰
 5. **转换日志**：所有已应用/已丢弃的转换记录在案（位置、场景类、原/新形态、理由、评估结果），支持复核与回退
 6. **未决清单**：全文档审核超限仍未通过时，在最终 Markdown 文末附「审核未决清单」，列出仍未解决的所有缺口
+7. **转换禁区**：`field_type: table` / `enum` 字段具有固有表示形态，`preserve: true` 的 `text` 字段为显式禁区，三者一律禁止任何表示转换（`preserve` 语义见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md)）
 
 #### 数据与状态
 
-- `polish_proposals`（生成器产出，待分级/待确认）、`conversion_log`（已应用/已丢弃转换记录）
+- `polish_proposals`（polish_agent 产出，待分级/待确认）、`conversion_log`（已应用/已丢弃转换记录）
 - `final_prd` 为最终输出
 
 ## 3. 会话引擎（只理解 API）
@@ -219,7 +251,7 @@ Session
 
 （选型理由见 [ARCHITECTURE_V2.md](../ARCHITECTURE_V2.md) 设计原则 3）
 
-- **编排**：主图（LangGraph 图 1）覆盖访谈阶段的单元循环（interview_agent → unit_review_agent → transcribe_agent），含缺口驱动模式，以产出完整结构化取值树为终点；审核与润色为简单循环（或轻量图 2）：全文档审核回灌循环 + 渲染润色（生成器-评估器迭代，纯 while 实现即可）。
+- **编排**：主图（LangGraph 图 1）覆盖访谈阶段的单元循环（interview_agent → unit_review_agent → transcribe_agent），含缺口驱动模式，以产出完整结构化取值树为终点；审核与润色为简单循环（或轻量图 2）：全文档审核回灌循环 + 渲染润色（polish_agent ↔ fidelity_evaluation_agent 迭代，纯 while 实现即可）。
 - **持久化：仅 SqliteSaver 一份**：会话状态（取值树、进度、interrupt 点）统一存入 LangGraph SqliteSaver（`sqlite3` 为 Python 标准库，零新增依赖）；查询直接读 checkpoint 内容，不自建第二套快照；`interrupt` 依赖 checkpointer，跨进程恢复必须持久化 saver。
 - 技术栈选型唯一结论：**保留 LangGraph，不切换**；新增 WebSocket 服务依赖待定（`websockets` / `uvicorn`），不影响协议层。
 
@@ -259,5 +291,5 @@ src/yespm_backend/
 1. **依赖方向单向**：`engine/` → `graph/`；`protocol/` 与 `entry/` → `engine/`。engine 不得 import 任何 UI / 传输代码。
 2. **单一契约**：CLI 不绕过协议直调 engine 内部——它使用进程内 Transport 走同一 JSON-RPC 消息（[PROTOCOL.md](../api/PROTOCOL.md) 原则 6），保证三前端行为一致。
 3. **自由文本零命令语义**：引擎对 `input/send` 的 `text` 不做任何命令解析（`/xxx`、`y/n` 等一律按数据转发给当前活跃节点）。
-4. **错误分级**：可恢复（LLM 调用失败 → 重试，耗尽后 3001）与致命（配置错误 2002、模板不合法 2001 在启动阶段即拒绝）。
+4. **错误分级**：可恢复（LLM 调用失败 → 重试，耗尽后 3001）与致命（配置错误 2002、模板不合法 2001——加载时由 Pydantic 校验，启动阶段即拒绝并报错定位）。
 5. **零新增依赖**：SQLite（标准库）持久化沿用设计原则 3 的结论。

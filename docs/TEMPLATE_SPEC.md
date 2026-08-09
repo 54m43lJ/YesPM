@@ -1,13 +1,15 @@
-# PRD 模板数据结构规范（TEMPLATE_SPEC / V2）
+# PRD 模板编写规范（TEMPLATE_SPEC / V2）
 
-本规范定义 YesPM V2 模板的数据结构契约。模板 YAML 是全流程的**唯一真源**，同时承担「访谈指引」与「渲染脚手架」双重职责。用户可完全自定义模板，只要符合本规范即可被 interview_agent、unit_review_agent、transcribe_agent、document_review_agent、润色管线正确消费。
+本文档面向自定义模板的二次开发者，说明模板 YAML 的编写规范。模板承担「访谈指引」与「渲染脚手架」双重职责：模板树直接驱动访谈单元的划分与提问方向，渲染器程序性遍历模板树生成最终文档（模板唯一真源原则见 [ARCHITECTURE_V2.md](./ARCHITECTURE_V2.md)）。用户可完全自定义模板，只要符合本规范即可被 interview_agent、unit_review_agent、transcribe_agent、document_review_agent、润色管线正确消费。
 
-## 设计原则
+## 自定义模板编写原则
 
-1. **唯一真源**：不存在独立的渲染模板文件，最终文档由渲染器程序性遍历 YAML 树生成。
-2. **推断优于声明**：节点身份由树中位置推断，不显式写 `id`；节点类型由字段存在性推断，不显式写 `type`。
-3. **极致精简**：所有元数据均可省略并走默认；一个 field 最少只需 `title`。
-4. **任意深度**：树状递归结构，嵌套层数无限制。
+1. **推断优于声明**：节点身份由树中位置推断，不显式写 `id`；节点类型由字段存在性推断，不显式写 `type`。
+2. **极致精简**：所有元数据均可省略并走默认；一个 field 最少只需 `title`。
+3. **任意深度**：树状递归结构，嵌套层数无限制。
+4. **结构合法**：根为节点列表（章节数组）；每个节点至少含 `title`；`repeat` 必须含 `item_label` 与 `children`，`group` 必须含 `children`，`field` 不得含 `children`。
+5. **类型配套**：`field_type: enum` 必须提供 `enum_values`；`field_type: table` 必须提供非空 `columns`。
+6. **禁区受限**：`preserve: true` 仅允许出现在 `field_type: text` 的字段上。
 
 ## 节点类型
 
@@ -90,62 +92,6 @@ tier 决定访谈阶段（Node ①）的**单元划分**——每个访谈单元
 3.2.2    功能 2               (实例)
 ...
 ```
-
-## 中间态：取值树
-
-`prd_draft` 是与模板同构的**取值树**：
-
-- 遍历模板实例化：`field` 叶子持有转录值或空，`group` 仅作结构，`repeat` 展开为实例数组。
-- interview_agent / unit_review_agent 的跨单元上下文、document_review_agent 的审核输入、渲染基线均基于此树。
-- 取值树是全流程唯一中间态，取代任何字符串形式的草稿。
-
-```
-模板树（template）            取值树（prd_draft）
-─────────────────            ─────────────────
-group                        group
-├─ field                     ├─ field → "已填值"
-├─ repeat                    ├─ repeat
-│  └─ children(单实例)        │  ├─ 实例1 (children 已实例化)
-│                            │  └─ 实例2
-└─ group                     └─ group
-   └─ field                     └─ field → 空
-```
-
-## 渲染规则
-
-渲染分两层，均为输出最终 Markdown 的组成部分：
-
-### 第一层：确定性基线渲染
-
-渲染器遍历取值树**确定性**生成 Markdown：
-
-- 按深度产出标题层级（`#` / `##` / `###` …）。
-- `group` 产出标题，不产出正文。
-- `repeat` 实例产出标题（形如 `{item_label} {序号}` 或实例自定义名）。
-- `field` 按 `field_type` 产出内容：`text` → 段落；`enum` → 所选项；`table` → Markdown 表格（首行为 `columns` 列名，其后每行一条记录）。
-- 空值字段按策略跳过或输出占位符。
-- 纯程序性、可重现，作为润色的**基线**，无提案区域不被触碰。
-
-### 第二层：生成器-评估器润色
-
-- 润色生成器扫描基线，识别表示优化场景（文本→表格 / 文本→Mermaid 图表 / 段落→列表 / 删减提纯），产出转换提案。
-- 保真评估器校验提案（事实点不增、不减、不改），通过后应用，不通过则反馈修订，最多 2 轮。
-- 低风险转换（表格化、结构化）自动执行；高风险转换（图表化、删减）需用户确认。
-- **转换禁区**：`field_type: table` / `enum` 字段、`preserve: true` 的 `text` 字段，一律禁止转换。
-- Mermaid 图表（flowchart / stateDiagram / sequenceDiagram / gantt / erDiagram）为合法输出形态，嵌入 Markdown。
-- 所有转换记录于转换日志，支持复核与回退。
-
-## 用户自定义合规约束
-
-自定模板必须满足：
-
-1. 根为节点列表（章节数组）。
-2. 每个节点至少含 `title`。
-3. `repeat` 必须含 `item_label` 与 `children`；`group` 必须含 `children`；`field` 不得含 `children`。
-4. `field_type: enum` 必须提供 `enum_values`；`field_type: table` 必须提供非空 `columns`。
-5. `preserve: true` 仅允许出现在 `field_type: text` 的字段上。
-6. 每个节点都应是合法的 group / repeat / field（`children` 内不得出现 `item_label` 与 `children` 同时缺失的节点）。
-7. 加载时由 Pydantic 校验；不合规模板在启动阶段即被拒绝并报错定位。
 
 ## YAML 示意
 
