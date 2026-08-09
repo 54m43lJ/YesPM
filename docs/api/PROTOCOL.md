@@ -1,17 +1,10 @@
-# YesPM 后端接口协议（PROTOCOL / V1）
+# YesPM 后端接口协议
 
 > 本文档定义 Python 后端暴露的统一接口契约：JSON-RPC 2.0 语义层。传输绑定见 [STDIO.md](./STDIO.md)（本地子进程）与 [WEBSOCKET.md](./WEBSOCKET.md)（远端服务）。三种前端——纯 CLI（Python）、TUI（TypeScript）、Web（JS/TS）——通过**同一协议**与后端通信，差异仅在传输。
 
 ## 1. 设计原则
 
-1. **协议优先，传输可插拔**：全部语义（方法、事件、错误）与传输无关；传输层只负责信封的收发。新增传输绑定不改动任何语义。
-2. **事件驱动**：后端是唯一的状态所有者。任何状态变化（阶段切换、转录、等待输入、提案产生）都以事件（通知）主动推送，前端不做状态推断、不轮询。
-3. **会话导向**：一切交互围绕 `session_id`。一个前端进程/连接可承载多个会话。
-4. **异步处理**：命令类请求（`input/send`、`command/*`、`proposal/respond`）只返回「已接受」；处理过程与结果全部经事件回流。查询类请求（`query/*`）同步返回。
-5. **后端无头且解耦**：后端只理解本协议，不理解任何用户命令与交互形态。命令语法、快捷键、界面表现都是前端对 API 的**重新解释与包装**（各前端交互定义见 [frontends/](../frontends/)），后端不承载。
-6. **自由文本只含数据，命令一律结构化**：API 不允许承载「命令执行」语义的自由文本。命令是结构化方法调用（`command/skip`、`command/finish`、`command/undo`、`proposal/respond`、`session/quit`）；`input/send` 的 `text` 是纯数据（访谈回复 / 补充信息），引擎原样转发给当前活跃节点，不做任何命令解析。
-7. **最小切面原则**：CLI 复用同一协议（进程内 transport），不存在第二套接口。协议是全系统唯一通信面。
-8. **服务端消息模板化 + 状态码统一**：事件不按语义细分为 path 式事件名，收敛为 4 个通用模板——`log`（系统日志与错误）、`session/status`（会话状态，字段级颗粒度）、`session/message`（文本流）、`session/await_input`（等待输入信号）。模板之间信息零重合：文本只在 `session/message`、状态只在 `session/status`、等待信号只在 `session/await_input`、日志只在 `log`；`session/await_input` 为纯信号，阶段与上下文由前端从状态推断，彻底解耦。**大载荷（取值树 / 最终文档 / 缺口清单 / 转换日志）是设计例外**：每个大载荷有**成对**的专用通道——`xxx/changed` 变更信号（提醒前端主动拉取）+ `query/xxx` 专属查询，不得进入 `session/status` 或 `query/status`。全部状态码统一为四位码（等级位 + 业务域位 + 语义位，见 §11），贯穿 `log` 事件、`session/message` 分型与错误响应，无第二套码表。
+协议设计遵循 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则（协议优先 / 事件驱动 / 会话导向 / 后端无头 / 命令结构化 / 消息模板化与状态码统一等），本文档是其落地的唯一契约来源，不复述原则论证。契约规则见各相应章节：异步命令 + 同步查询（§4）、事件模板与载荷通道（§5）、单会话串行（§8）、四位状态码（§11）。
 
 ## 2. 消息信封（JSON-RPC 2.0）
 
@@ -61,7 +54,7 @@
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `template` | string | 否 | 模板标识或路径；缺省用服务端默认模板 |
-| `config` | object | 否 | 会话级覆盖（如 `{"model": "..."}`）；v1 可选 |
+| `config` | object | 否 | 会话级覆盖（如 `{"model": "..."}`） |
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
@@ -77,7 +70,8 @@
 | 结果 | 类型 | 说明 |
 |------|------|------|
 | `snapshot` | SessionSnapshot | 恢复后快照 |
-| `tree` | ValueTreeNode | 完整取值树快照（前端可直接渲染，亦可后续用 `query/tree` 增量获取） |
+
+> 恢复结果**不携带取值树**——大载荷一律经专属查询拉取（见 §5.3 封闭性条款）。推荐实现：前端创建 / 恢复会话后主动 `query/tree` 获取初始取值树（或依赖后续 `tree/changed` 信号）。
 
 恢复后若存在挂起的 interrupt，引擎会补发 `session/await_input`（阶段与等待上下文经 `session/status` 的 `stage` / `waiting` 字段携带）。
 
@@ -186,17 +180,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|
 | `session_id` | string | |
 | `fields` | string[] | 本次返回的字段列表（与请求 `fields` 一致；缺省为全部常规字段） |
-| `stage` | string | `interview` \| `document_review` \| `polish` \| `finished` |
-| `status` | string | `running`（计算中）\| `waiting`（有挂起中断）\| `idle` |
-| `current_unit` | object \| null | `{path, title}`，访谈阶段当前单元 |
-| `units_done` | string[] | 已完成单元路径 |
-| `waiting` | object | `{kind: "interview" \| "proposal" \| "none", proposal_ids?: string[]}` |
-| `document_review` | object \| null | `{passed: boolean, gap_count: number}` |
-| `iterations` | object | `{document_review: number}`（全文档审核往返计数） |
-| `template_title` | string | |
-| `ended` | object \| null | `{reason: "quit"\|"finished"\|"error", detail?}` 会话已结束 |
-| `revision` | number | 状态版本号（单调递增，见 §5.2） |
-| `created_at` / `updated_at` | string | ISO8601 |
+| 常规字段 | — | `stage`、`node`、`status`、`current_unit`、`units_done`、`waiting`、`document_review`、`iterations`、`template_title`、`ended`、`revision`、`created_at`、`updated_at`；字段定义以 [§5.2 字段表](#52-sessionstatus-字段表fields-白名单) 为唯一来源 |
 
 #### `query/tree`
 
@@ -207,11 +191,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
-| `tree` | ValueTreeNode | 取值树（与模板同构，定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 取值树一节） |
-
-ValueTreeNode：`{path, title, node_type: "group"|"repeat"|"field", field_type?: "text"|"enum"|"table", value?, children?, instances?}`
-
-- `group` → `children`；`repeat` → `instances[]`（每实例为子树）；`field` → `value`（`enum` 为所选项，`table` 为行对象列表，`text` 为字符串）。
+| `tree` | ValueTreeNode | 取值树（与模板同构）；节点结构与取值语义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 取值树一节（唯一来源） |
 
 #### `query/commands`
 
@@ -256,7 +236,7 @@ ValueTreeNode：`{path, title, node_type: "group"|"repeat"|"field", field_type?:
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
-| `gap_list` | object[] | 最近一次全文档审核的结构化缺口清单 `[{path, dimension, reason}]`（path 恒指字段路径，见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) 寻址一节） |
+| `gap_list` | object[] | 最近一次全文档审核的结构化缺口清单（`[{path, dimension, reason}]`；path 恒指字段路径，寻址与归并规则见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 寻址与 gap 归并一节，唯一来源） |
 
 #### `query/conversions`
 
@@ -284,20 +264,20 @@ ValueTreeNode：`{path, title, node_type: "group"|"repeat"|"field", field_type?:
 | `db_path` | string | 持久化路径 |
 | `version` | string | 后端版本 |
 
-v1 不提供 `config/set`；配置变更经配置文件后重启生效。
+不提供 `config/set`；配置变更经配置文件后重启生效。
 
 ## 5. 事件目录（server → client 通知）
 
-事件是唯一的异步回流通道。**事件收敛为 4 个通用模板 + 4 个大载荷变更信号**（设计原则 8），模板之间信息零重合。前端必须处理与自身形态相关的事件；未处理的事件应忽略（不报错）。
+事件是唯一的异步回流通道。**事件收敛为 4 个通用模板 + 4 个大载荷变更信号**，模板之间信息零重合。前端必须处理与自身形态相关的事件；未处理的事件应忽略（不报错）。
 
 ### 5.1 通用模板
 
 | 事件 | 参数（`params`） | 语义 |
 |------|------------------|------|
-| `log` | `{session_id?, status_code, message, data?}` | 系统日志与错误（合并原 `error` / `log`）：等级由 `status_code` 千位推断（1xxx debug / 2xxx info / 3xxx warn / 4xxx error / 5xxx fatal，见 §11）；请求失败不在此列，走 JSON-RPC error 响应；stdio 绑定落 stderr（见 [STDIO.md](./STDIO.md)） |
-| `session/status` | `{session_id, status_code: 2001, fields: string[], revision: number, …}` | **唯一会话状态通道**（合并原 `session/ready` / `status/changed` / `node/entered` / `node/exited` / `session/ended`）：状态变化即推送，只带**变化/相关字段**，`fields` 声明本消息包含的字段（白名单见 5.2）；创建 / 恢复后首条推全字段快照；会话结束时 `fields` 含 `ended`。大载荷不在此通道 |
-| `session/message` | `{session_id, message_id, status_code: 2031\|2032, delta?, text?}` | **唯一文本流通道**（合并原 `message/chunk` / `message/complete`）：agent 回复流式推送；2031 = chunk（增量，顺序即文本顺序），2032 = complete（携带全量文本）；前端按 `message_id` 拼接（见 §6） |
-| `session/await_input` | `{session_id, status_code: 2002}` | **唯一「可回复」信号**（合并原 `input/required` / `proposal/pending`）：纯信号——引擎挂起，前端可以发送进一步消息（`input/send` 或 `proposal/respond`）。处于什么阶段、等待何种输入完全由前端从 `session/status` 的 `stage` / `waiting` 字段推断，本消息不携带任何上下文 |
+| `log` | `{session_id?, status_code, message, data?}` | 系统日志与错误：等级由 `status_code` 千位推断（1xxx debug / 2xxx info / 3xxx warn / 4xxx error / 5xxx fatal，见 §11）；请求失败不在此列，走 JSON-RPC error 响应；stdio 绑定落 stderr（见 [STDIO.md](./STDIO.md)） |
+| `session/status` | `{session_id, status_code: 2001, fields: string[], revision: number, …}` | **唯一会话状态通道**：状态变化即推送，只带**变化/相关字段**，`fields` 声明本消息包含的字段（白名单见 5.2）；创建 / 恢复后首条推全字段快照；会话结束时 `fields` 含 `ended`。大载荷不在此通道 |
+| `session/message` | `{session_id, message_id, status_code: 2031\|2032, delta?, text?}` | **唯一文本流通道**：agent 回复流式推送；2031 = chunk（增量，顺序即文本顺序），2032 = complete（携带全量文本）；前端按 `message_id` 拼接（见 §6） |
+| `session/await_input` | `{session_id, status_code: 2002}` | **唯一「可回复」信号**：纯信号——引擎挂起，前端可以发送进一步消息（`input/send` 或 `proposal/respond`）。处于什么阶段、等待何种输入完全由前端从 `session/status` 的 `stage` / `waiting` 字段推断，本消息不携带任何上下文 |
 
 ### 5.2 `session/status` 字段表（fields 白名单）
 
@@ -320,7 +300,7 @@ v1 不提供 `config/set`；配置变更经配置文件后重启生效。
 >
 > **大载荷禁入**：`tree` / `final_prd` / `gaps` / `conversion_log` 不允许出现在 `fields` 中（推送与查询均同），一律走 5.3 的成对通道。
 
-### 5.3 大载荷变更信号（设计原则例外）
+### 5.3 大载荷变更信号（大载荷设计例外）
 
 大载荷不进 `session/status` / `query/status`，每个载荷有**成对**的专用通道：变更信号（本表）+ 专属查询（§4.3）。信号为纯提示，载荷一律按需拉取，信号与载荷零重合。
 
@@ -353,7 +333,7 @@ v1 不提供 `config/set`；配置变更经配置文件后重启生效。
 
 - **单会话串行**：一个会话内同一时刻只处理一个请求；引擎计算期间到达的 `input/send` 被接受并暂存（`queued: true`），其余请求返回 4005「会话忙」。
 - **跨会话并行**：不同会话互不影响，可并发处理。
-- **多前端竞争**：同一会话被多连接订阅时，事件广播到全部订阅连接；竞态下的输入先到先得（v1 简化）。
+- **多前端竞争**：同一会话被多连接订阅时，事件广播到全部订阅连接；竞态下的输入先到先得。
 
 ## 9. 前端义务清单（摘要）
 
@@ -401,7 +381,8 @@ server → session/status {fields: ["ended"], ended: {reason: "finished"}}
 
 ```
 client → session/resume {session_id}
-server ← {result: {snapshot, tree}}
+server ← {result: {snapshot}}
+（推荐）client → query/tree → 拉取初始取值树
 server → session/status {status_code: 2001, fields: [全部常规字段], revision: N, …}
 （若挂起 interrupt）
 server → session/status {fields: ["waiting"], waiting: {kind: "interview" | "proposal", …}}
@@ -410,7 +391,7 @@ server → session/await_input
 
 ## 11. 状态码（四位码体系）
 
-全部状态码统一为四位码 `ABCD`，贯穿 `log` 事件、`session/message` 分型与 JSON-RPC error 响应，无第二套码表（设计原则 8）。
+全部状态码统一为四位码 `ABCD`，贯穿 `log` 事件、`session/message` 分型与 JSON-RPC error 响应，无第二套码表。
 
 ### 11.1 等级位（千位）
 

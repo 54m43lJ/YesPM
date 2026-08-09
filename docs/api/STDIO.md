@@ -1,4 +1,4 @@
-# stdio 传输绑定（STDIO / V1）
+# stdio 传输绑定
 
 > [PROTOCOL.md](./PROTOCOL.md) 定义语义层；本文档定义其 stdio 绑定。适用：TUI（TypeScript）等本地子进程前端。纯 CLI（Python）使用进程内绑定，不经过本传输（见 [frontends/CLI.md](../frontends/CLI.md)）。
 

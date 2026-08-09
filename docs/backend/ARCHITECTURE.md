@@ -1,6 +1,6 @@
 # YesPM 后端架构（Backend）
 
-> 本文档描述后端**工作流程**（三阶段流程与 agent 职责）与**引擎实现**（会话机制、技术栈结论、模块与进程形态）。设计原则与选型理由见 [ARCHITECTURE_V2.md](../ARCHITECTURE_V2.md)；对外接口契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)；交互定义（命令语法、快捷键等）在 [frontends/](../frontends/) 各前端文档中，后端不承载。
+> 本文档描述后端**工作流程**（三阶段流程与 agent 职责）与**引擎实现**（会话机制、技术栈结论、模块与进程形态）。设计原则与选型理由见 [ARCHITECTURE.md](../ARCHITECTURE.md)；对外接口契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)；交互定义（命令语法、快捷键等）在 [frontends/](../frontends/) 各前端文档中，后端不承载。
 
 ## 1. 定位与边界
 
@@ -37,7 +37,7 @@
                               （最多 N 轮，超限强制进入 ③ 并附未决清单）
 ```
 
-**统一反馈机制**：缺口清单（gap list）是全流程唯一的反馈载体。单元成熟度评审与全文档审核都产出 `[{path, dimension, reason}]` 形式清单，回灌给访谈 agent，复用同一套单元循环。
+**统一反馈机制**：缺口清单（gap list）是全流程唯一的反馈载体（原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 2；清单形态与归并规则见下文「寻址与 gap 归并」）。
 
 ### 取值树：贯穿全流程的中间态数据
 
@@ -45,7 +45,7 @@
 
 - 遍历模板实例化：`field` 叶子持有转录值或空，`group` 仅作结构，`repeat` 展开为实例数组。
 - interview_agent / unit_review_agent 的跨单元上下文、document_review_agent 的审核输入、渲染基线均基于此树。
-- 取值树是全流程唯一中间态，取代任何字符串形式的草稿。
+- 取值树是全流程唯一中间态，而非字符串形式的草稿。
 
 ```
 模板树（template）            取值树（prd_draft）
@@ -59,6 +59,42 @@ group                        group
    └─ field                     └─ field → 空
 ```
 
+取值树节点统一结构（ValueTreeNode，对外经 `query/tree` 暴露）：
+
+- `{path, title, node_type: "group"|"repeat"|"field", field_type?: "text"|"enum"|"table", value?, children?, instances?}`
+- `group` → `children`；`repeat` → `instances[]`（每实例为子树）；`field` → `value`（`enum` 为所选项，`table` 为行对象列表，`text` 为字符串）。
+
+### 寻址与 gap 归并
+
+取值树无 `id`，纯位置推断。渲染器 / 审核器 / 访谈进度遍历树时按出现序生成路径：
+
+- 顶层章节按序编号 `1`、`2`、`3` …
+- 每深一层追加 `.序号`
+- `repeat` 的每个实例占一级编号：`3.2 核心功能详述`（repeat）→ 实例 1 = `3.2.1` → 其子 = `3.2.1.1` …
+- repeat 实例增删不改变既有实例的路径，仅追加或移除尾部序号。
+
+位置路径（如 `"3.2.1.2.1"`）用作 `units_done` / `gap_list` 的寻址键：
+
+```
+3    功能需求                 (group)
+3.1    功能模块划分           (field)
+3.2    核心功能详述           (repeat, item_label=功能)
+3.2.1    功能 1               (实例)
+3.2.1.1   功能名称            (field)
+3.2.1.2   用户操作流程        (group)
+3.2.1.2.1  主流程             (field)
+3.2.1.2.2  异常分支           (field)
+3.2.2    功能 2               (实例)
+...
+```
+
+**gap 统一为字段级**：`gap_list` 的 `path` 恒指字段路径，清单形态为 `[{path, dimension, reason}]`（单元成熟度评审与全文档审核共用同一形态）。访谈单元的归并按下述规则由字段的有效 tier 决定：
+
+- 有效 tier 为 `P0` → 该字段自身即访谈单元，直接重新访谈该字段；
+- 有效 tier 为 `P1` → 递归向上归并至所属章节级单元（最近声明 `P1` 的祖先），以根节点为兜底边界；
+- 有效 tier 为 `P2` → 不产生访谈单元，兜底直接交由 transcribe_agent 依据上下文重新总结，不走访谈。
+- **repeat 内字段的例外**：repeat 子树内字段的有效 tier 即 repeat 的有效 tier（声明无效、纯继承）；归并时 `P0` → **整棵 repeat 子树**为访谈单元（不复用「字段自身即单元」），`P1` → 向上归并至所属章节级单元，`P2` → 同上转录兜底。
+
 ### 2.1 访谈阶段（Interview Stage）
 
 #### 目标
@@ -67,11 +103,7 @@ group                        group
 
 #### Tier 语义（访谈颗粒度）
 
-| tier | 语义 | 处理 |
-|------|------|------|
-| P0 | 最细，需专门提问 | **字段级访谈单元**：围绕该字段专项对话，直到成熟 |
-| P1 | 章节整体访谈 | **章节级访谈单元**：整章一个自由会话 |
-| P2 | 不访谈 | 无访谈单元，转录/收尾时由 LLM 依据上下文推断，推不出则留「待补充」 |
+tier 决定访谈单元划分：P0 字段级单元 / P1 章节级单元 / P2 无单元（转录/收尾时推断）。完整定义（含继承、repeat 例外与单元拆分规则）见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) tier 语义一节。
 
 #### 单元级循环
 
@@ -93,10 +125,10 @@ unit_review_agent ── 成熟度评审（本单元对话 + 取值树）──�
 
 #### 关键设计决策
 
-1. **单元划分**：由 tier 决定。P0 字段 → 字段级单元；P1 章节 → 章节级单元；P2 → 无单元，转录/收尾时推断。
+1. **单元划分**：由 tier 决定（tier 语义与拆分规则见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) tier 语义一节）。P0 字段 → 字段级单元；P1 章节 → 章节级单元；P2 → 无单元，转录/收尾时推断。repeat 的 tier 仅由继承决定、其子树内声明无效，整棵 repeat 子树为单一访谈单元。
 2. **评审触发点**：interview_agent 主动声明"本单元覆盖完毕"时触发评审；兜底为对话超过 N 轮（默认 5）未声明时强制评审一次，防止闲聊不推进。
 3. **评审反馈**：unit_review_agent 不成熟时返回**缺口清单**（哪些要点缺失/不清晰），interview_agent 据此针对性追问，形成闭环。
-4. **单元级中断与阶段级结束（操作语义）**：`skip` 操作立即停止当前单元的访谈，**跳过评审、强制转录**（尽力而为，缺失处标「待补充」），写入取值树后**继续下一单元**，不结束整个流程；`finish` 操作才是阶段级结束——结束访谈阶段、进入全文档审核。两者语义互斥：`skip` 只跳过当前单元，`finish` 只终止访谈阶段。（命令语法与映射由各前端定义，见 [frontends/](../frontends/)）
+4. **单元级中断与阶段级结束（操作语义）**：`skip` 与 `finish` 的完整语义见 [PROTOCOL.md](../api/PROTOCOL.md) §4.2（`command/skip` / `command/finish`）；关键区别——`skip` 只跳过当前单元，`finish` 才终止访谈阶段，两者语义互斥。（命令语法与映射由各前端定义，见 [frontends/](../frontends/)）
 5. **跨单元上下文彻底隔离**：每个单元的访谈历史在转录完成后**丢弃**。下一单元开始时，interview_agent / unit_review_agent 的上下文仅为**已转录的结构化取值树** + 模板单元描述，不含任何原始对话。
 
 #### transcribe_agent 硬性约束
@@ -139,14 +171,14 @@ unit_review_agent ── 成熟度评审（本单元对话 + 取值树）──�
 
 #### 失败处理：回灌访谈 agent，从头处理
 
-审核不通过时，`gap_list` 交给访谈 agent，**从头处理**——不是直接 patch 取值树，而是：
+审核不通过时，`gap_list` 交给访谈 agent，**从头处理**（设计原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 8）——不是直接 patch 取值树，而是：
 
-1. 将 gap 对应位置按字段有效 tier 归并为访谈单元（规则见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) 寻址一节）：P0 → 字段自身单元；P1 → 所属章节单元；P2 → 不走访谈，直接交由 transcribe_agent 依据上下文重新总结（复用修订式转录，输入为现有取值树 + 全局上下文，无新对话）
+1. 将 gap 对应位置按字段有效 tier 归并为访谈单元（规则见上文「寻址与 gap 归并」）：P0 → 字段自身单元；P1 → 所属章节单元；P2 → 不走访谈，直接交由 transcribe_agent 依据上下文重新总结（复用修订式转录，输入为现有取值树 + 全局上下文，无新对话）
 2. 访谈 agent 针对 gap 所在单元重新访谈 → 成熟度评审 → 转录
 3. 完成后再次进入全文档审核
 4. 兜底：最多 N 轮（默认 3）往返，超限强制进入渲染润色，渲染时在文末附「审核未决清单」
 
-**覆盖语义**：gap 单元重新访谈后，转录结果**覆盖**该单元原有值。覆盖通过 transcribe_agent 的修订式转录实现（见 2.1 约束）：在原有数据基础上修改——保留仍有效的内容、修改过时的、补充缺失的，而非重写或仅追加。
+**覆盖语义**：gap 单元重新访谈后，转录结果**覆盖**该单元原有值，通过 transcribe_agent 的修订式转录实现（见 2.1 约束）。
 
 #### 数据与状态
 
@@ -181,15 +213,16 @@ unit_review_agent ── 成熟度评审（本单元对话 + 取值树）──�
    │
    ▼
 ③ 风险分级（规则化，非 LLM）
-   │  A/C 类（表格化/结构化）→ 低风险，自动执行
-   │  B/D 类（图表化/删减）  → 高风险，用户逐条确认
+   │  A/C 类（表格化/结构化）→ 低风险
+   │  B/D 类（图表化/删减）  → 高风险
    │
    ▼
 ④ fidelity_evaluation_agent（保真评估器）← LLM
-   │  逐条校验提案：事实点不增、不减、不改
-   │  ┌─ 通过 → 应用转换
-   │  └─ 不通过 → 反馈原因 → 回到 ② polish_agent 修订
-   │            （最多 N 轮，仍不通过则丢弃该提案）
+   │  所有提案一律逐条校验：事实点不增、不减、不改
+   │  ┌─ 不通过 → 反馈原因 → 回到 ② polish_agent 修订
+   │  │          （最多 N 轮，仍不通过则丢弃该提案）
+   │  └─ 通过 → A/C 类自动应用；B/D 类经用户逐条确认后应用
+   │            （确认也是 interrupt，一次可确认多条）
    │
    ▼
 ⑤ 输出最终 Markdown + 转换日志（附「审核未决清单」若有）
@@ -219,12 +252,10 @@ unit_review_agent ── 成熟度评审（本单元对话 + 取值树）──�
 #### 关键设计决策
 
 1. **图表格式**：Mermaid（flowchart / stateDiagram / sequenceDiagram / gantt / erDiagram），嵌入 Markdown，git 友好
-2. **执行方式（分级策略）**：低风险（A/C）自动执行；高风险（B/D）用户逐条确认——确认也是 interrupt，一次可确认多条
-3. **保真校验**：polish_agent ↔ fidelity_evaluation_agent 多 agent 架构，取代"规则化事实点比对"；fidelity_evaluation_agent 独立于 polish_agent，避免自评
-4. **确定性基线**：润色只在确定性渲染的基线上做增量转换，无提案区域不被触碰
-5. **转换日志**：所有已应用/已丢弃的转换记录在案（位置、场景类、原/新形态、理由、评估结果），支持复核与回退
-6. **未决清单**：全文档审核超限仍未通过时，在最终 Markdown 文末附「审核未决清单」，列出仍未解决的所有缺口
-7. **转换禁区**：`field_type: table` / `enum` 字段具有固有表示形态，`preserve: true` 的 `text` 字段为显式禁区，三者一律禁止任何表示转换（`preserve` 语义见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md)）
+2. **保真校验**：polish_agent ↔ fidelity_evaluation_agent 多 agent 架构；fidelity_evaluation_agent 独立于 polish_agent，避免自评
+3. **转换日志**：所有已应用/已丢弃的转换记录在案（位置、场景类、原/新形态、理由、评估结果），支持复核与回退
+4. **未决清单**：全文档审核超限仍未通过时，在最终 Markdown 文末附「审核未决清单」，列出仍未解决的所有缺口
+5. **转换禁区**：`field_type: table` / `enum` 字段与 `preserve: true` 的 `text` 字段禁止任何表示转换（定义见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md)）
 
 #### 数据与状态
 
@@ -242,18 +273,18 @@ Session
  └─ interrupt      当前挂起的中断（interview 等待 / proposal 确认）
 ```
 
-- **API 方法分发**：引擎入口是协议方法分发器（方法 → 引擎操作），不存在「命令文本路由」——`input/send` 的 `text` 是纯数据，原样转发给当前活跃节点；`command/skip` / `command/finish` / `command/undo` / `proposal/respond` / `session/quit` 是结构化操作（原则 6，见 [ARCHITECTURE_V2.md](../ARCHITECTURE_V2.md)）。
+- **API 方法分发**：引擎入口是协议方法分发器（方法 → 引擎操作），不存在「命令文本路由」——`input/send` 的 `text` 是纯数据，原样转发给当前活跃节点；`command/skip` / `command/finish` / `command/undo` / `proposal/respond` / `session/quit` 是结构化操作（命令结构化原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6）。
 - **单一状态源**：状态本体在 LangGraph checkpoint 中（仅 SqliteSaver 一份）；会话元数据表只维护会话清单（创建时间、模板、状态摘要），不复制状态。
-- **单会话串行**：一个 Session 同一时刻只跑一个图执行（流式 `stream_mode`）；busy 期间到达的 `input/send` 进入 `pending_queue`（对应协议 `queued: true`，见 [PROTOCOL.md](../api/PROTOCOL.md) §8），其余请求返回 4005。
-- **事件发布**：引擎内所有状态变化发布领域事件；由传输适配层序列化为协议通知——事件收敛为 4 个通用模板（`log` / `session/status` / `session/message` / `session/await_input`）+ 大载荷变更信号（`tree/changed` / `prd/changed` / `gaps/changed` / `conversions/changed`），见 [PROTOCOL.md](../api/PROTOCOL.md) §5。引擎不感知前端存在。
+- **单会话串行**：一个 Session 同一时刻只跑一个图执行（流式 `stream_mode`）；busy 期间的输入暂存（`pending_queue`）与请求拒绝语义以 [PROTOCOL.md](../api/PROTOCOL.md) §8 为准。
+- **事件发布**：引擎内所有状态变化发布领域事件，由传输适配层序列化为协议通知（事件模板与载荷通道见 [PROTOCOL.md](../api/PROTOCOL.md) §5，唯一契约来源）；引擎不感知前端存在。
 
 ## 4. 技术栈结论
 
-（选型理由见 [ARCHITECTURE_V2.md](../ARCHITECTURE_V2.md) 设计原则 3）
+（选型理由见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 3）
 
-- **编排**：主图（LangGraph 图 1）覆盖访谈阶段的单元循环（interview_agent → unit_review_agent → transcribe_agent），含缺口驱动模式，以产出完整结构化取值树为终点；审核与润色为简单循环（或轻量图 2）：全文档审核回灌循环 + 渲染润色（polish_agent ↔ fidelity_evaluation_agent 迭代，纯 while 实现即可）。
+- **编排**：主图（LangGraph 图 1）覆盖访谈阶段的单元循环（interview_agent → unit_review_agent → transcribe_agent），含缺口驱动模式，以产出完整结构化取值树为终点；审核与润色为轻量图（图 2）：全文档审核回灌循环 + 渲染润色（polish_agent ↔ fidelity_evaluation_agent 迭代）。
 - **持久化：仅 SqliteSaver 一份**：会话状态（取值树、进度、interrupt 点）统一存入 LangGraph SqliteSaver（`sqlite3` 为 Python 标准库，零新增依赖）；查询直接读 checkpoint 内容，不自建第二套快照；`interrupt` 依赖 checkpointer，跨进程恢复必须持久化 saver。
-- 技术栈选型唯一结论：**保留 LangGraph，不切换**；新增 WebSocket 服务依赖待定（`websockets` / `uvicorn`），不影响协议层。
+- 技术栈选型唯一结论：**LangGraph 为编排框架**；新增 WebSocket 服务依赖 `websockets`，不影响协议层。
 
 ## 5. 模块结构
 
@@ -289,7 +320,7 @@ src/yespm_backend/
 ## 7. 关键约束
 
 1. **依赖方向单向**：`engine/` → `graph/`；`protocol/` 与 `entry/` → `engine/`。engine 不得 import 任何 UI / 传输代码。
-2. **单一契约**：CLI 不绕过协议直调 engine 内部——它使用进程内 Transport 走同一 JSON-RPC 消息（[PROTOCOL.md](../api/PROTOCOL.md) 原则 6），保证三前端行为一致。
-3. **自由文本零命令语义**：引擎对 `input/send` 的 `text` 不做任何命令解析（`/xxx`、`y/n` 等一律按数据转发给当前活跃节点）。
+2. **单一契约**：CLI 不绕过协议直调 engine 内部——它使用进程内 Transport 走同一 JSON-RPC 消息（见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 4），保证三前端行为一致。
+3. **自由文本零命令语义**：`input/send` 的 `text` 不做任何命令解析（原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6，实现见上文「API 方法分发」）。
 4. **错误分级**：全部错误以四位状态码统一表达（见 [PROTOCOL.md](../api/PROTOCOL.md) §11）：可恢复 error 级（LLM 调用失败 → 重试，耗尽后 4803）与致命 fatal 级（配置错误 5802、模板不合法 5701——加载时由 Pydantic 校验，启动阶段即拒绝并报错定位；checkpoint 持久化失败 5902、引擎内部故障 5901）。
 5. **零新增依赖**：SQLite（标准库）持久化沿用设计原则 3 的结论。

@@ -68,7 +68,7 @@
 ## 5. 连接与会话管理
 
 - **多标签页**：同一会话被多个连接订阅 → 事件广播到全部订阅连接（[WEBSOCKET.md](../api/WEBSOCKET.md) §3）；前端不做本地状态推断，全部以事件为准。
-- **断线重连**：指数退避（1s→30s 上限）；重连成功后对活跃会话逐个 `session/resume`；重连期间输入由前端暂存补发（[WEBSOCKET.md](../api/WEBSOCKET.md) §5）。
+- **断线重连**：按 [WEBSOCKET.md](../api/WEBSOCKET.md) §5 执行——指数退避重连（参数以该文档为准），重连成功后对活跃会话逐个 `session/resume`，重连期间输入由前端暂存补发。
 - **健康检查**：启动 / 重连前 `GET /healthz` 探测后端可用性。
 
 ## 6. 与 CLI / TUI 的差异

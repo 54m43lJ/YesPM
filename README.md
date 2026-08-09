@@ -5,16 +5,18 @@
 ## 工作流程
 
 ```
-用户输入 → ① draft_prd（模板驱动问答）→ ② review_prd（字段级审核）→ ③ finalize_prd（渲染输出）
+用户简述 → ① 访谈（interview ↔ 用户 → 单元评审 → 转录取值树）
+         → ② 全文档审核（不通过 → 缺口清单 → 回 ①；通过 ↓）
+         → ③ 确定性渲染 → 润色（polish ↔ fidelity 评估）→ 最终 Markdown
 ```
 
 | 阶段 | 节点 | 职责 |
 |------|------|------|
-| ① | `draft_prd` | 借助模板通过引导式问答（混合粒度）澄清并填写，产出结构化取值树 |
-| ② | `review_prd` | 按字段维度（完整性 / 一致性 / 可行性）审核取值树，产出字段级失败清单 |
-| ③ | `finalize_prd` | 遍历取值树确定性渲染为 Markdown |
+| ① | `interview_agent` / `unit_review_agent` / `transcribe_agent` | 按模板单元划分（tier）自然对话访谈，逐单元成熟度评审，转录为与模板同构的取值树 |
+| ② | `document_review_agent` | 全文档审核（完整性 / 跨章节一致性 / 逻辑自洽）；不通过时产出缺口清单回灌访谈 |
+| ③ | 确定性渲染 + `polish_agent` ↔ `fidelity_evaluation_agent` | 程序性渲染基线 Markdown，再分级润色（低风险自动 / 高风险逐条确认），输出最终文档 |
 
-> 澄清与按模板填写合并为单节点 `draft_prd`；中间态为与模板同构的取值树（非纯文本）。详见 [架构设计](docs/ARCHITECTURE_V2.md)。
+> 全流程中间态为与模板同构的取值树（非纯文本）。流程与设计原则详见 [架构设计](docs/ARCHITECTURE.md) 与 [后端架构](docs/backend/ARCHITECTURE.md)。
 
 ## 环境准备
 
@@ -42,8 +44,16 @@ copy .env.example .env
 ### 4. 运行
 
 ```powershell
-python src/graph.py
+yespm
 ```
+
+三个进程入口共享同一引擎（详见 [后端架构](docs/backend/ARCHITECTURE.md)）：
+
+| 命令 | 传输 | 使用者 |
+|------|------|--------|
+| `yespm` | 进程内 | 纯 CLI（Python） |
+| `yespm-server` | stdio | TUI（TypeScript） |
+| `yespm-ws` | WebSocket | Web（JS/TS） |
 
 ## 技术栈
 
