@@ -43,17 +43,47 @@ copy .env.example .env
 
 ### 4. 运行
 
+主入口为 TUI（Rust 二进制，spawn 后端 stdio 桥）：
+
 ```powershell
 yespm
 ```
 
-三个进程入口共享同一引擎（详见 [后端架构](docs/backend/ARCHITECTURE.md)）：
+高级用法：纯 CLI（Python，脚本化 / 无交互环境）：
+
+```powershell
+yespm-cli
+```
+
+#### 前端
+
+| 前端 | 二进制 | 语言 | 定位 | 传输 |
+|------|--------|------|------|------|
+| TUI | `yespm` | Rust | **主入口** | spawn `yespm-server`（stdio） |
+| CLI | `yespm-cli` | Python | 高级用法 | 进程内 |
+| Web | — | JS/TS | 浏览器前端（占位） | WebSocket（`yespm-ws`） |
+| Desktop | `yespm-desktop` | WebView 包装 Web | 桌面壳层（占位） | WebSocket（`yespm-ws`） |
+
+##### TUI（主入口，占位）
+
+- 依赖：Rust 工具链（stable）。
+- 编译：`cargo build --release`（`crates/yespm-tui`）。
+- 运行：`yespm`，自动发现 `yespm-server`（PATH → Conda 环境 `yespm` 回退，可 `--server` 覆盖）。
+- 文档：[frontends/TUI.md](docs/frontends/TUI.md)、[frontends/TUI-DELIVERY.md](docs/frontends/TUI-DELIVERY.md)。
+
+##### Desktop（占位）
+
+- 形态：WebView 包装 Web 前端，复用其界面与逻辑。
+- 依赖 / 编译：未定（Tauri / Electron 候选）。
+- 文档：[frontends/DESKTOP.md](docs/frontends/DESKTOP.md)。
+
+后端进程入口（详见 [后端架构](docs/backend/ARCHITECTURE.md)）：
 
 | 命令 | 传输 | 使用者 |
 |------|------|--------|
-| `yespm` | 进程内 | 纯 CLI（Python） |
-| `yespm-server` | stdio | TUI（TypeScript） |
-| `yespm-ws` | WebSocket | Web（JS/TS） |
+| `yespm-cli` | 进程内 | CLI（Python） |
+| `yespm-server` | stdio | TUI |
+| `yespm-ws` | WebSocket | Web / Desktop |
 
 ## 技术栈
 
@@ -65,4 +95,5 @@ yespm
 
 - Python 3.12+
 - Anaconda / Miniconda
+- Rust 工具链（构建 TUI 二进制 `yespm` 所需；使用发布产物可免）
 - OpenAI API Key（或兼容的 LLM 服务）

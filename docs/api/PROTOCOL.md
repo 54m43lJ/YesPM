@@ -1,6 +1,6 @@
 # YesPM 后端接口协议
 
-> 本文档定义 Python 后端暴露的统一接口契约：JSON-RPC 2.0 语义层。传输绑定见 [STDIO.md](./STDIO.md)（本地子进程）与 [WEBSOCKET.md](./WEBSOCKET.md)（远端服务）。三种前端——纯 CLI（Python）、TUI（TypeScript）、Web（JS/TS）——通过**同一协议**与后端通信，差异仅在传输。
+> 本文档定义 Python 后端暴露的统一接口契约：JSON-RPC 2.0 语义层。传输绑定见 [STDIO.md](./STDIO.md)（本地子进程）与 [WEBSOCKET.md](./WEBSOCKET.md)（远端服务）。全部前端（形态与命名见 [frontends/](../frontends/)）通过**同一协议**与后端通信，差异仅在传输。
 
 ## 1. 设计原则
 
@@ -37,11 +37,11 @@
 
 ## 3. 传输与寻址
 
-| 传输 | 用途 | 绑定文档 |
+| 传输 | 说明 | 绑定文档 |
 |------|------|---------|
-| in-process（进程内直连引擎） | 纯 CLI（Python） | [frontends/CLI.md](../frontends/CLI.md) |
-| stdio（JSON Lines） | TUI（TypeScript 子进程） | [STDIO.md](./STDIO.md) |
-| WebSocket | Web（JS/TS） | [WEBSOCKET.md](./WEBSOCKET.md) |
+| in-process（进程内直连引擎） | 进程内形态的前端（与引擎同进程直连） | —（无独立绑定文档） |
+| stdio（JSON Lines） | 本地子进程形态的前端 | [STDIO.md](./STDIO.md) |
+| WebSocket | 远端形态的前端 | [WEBSOCKET.md](./WEBSOCKET.md) |
 
 跨传输消息内容完全一致：方法名、参数、事件名、错误码全局唯一。
 
@@ -201,7 +201,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 
 | 结果 | 类型 | 说明 |
 |------|------|------|
-| `commands` | object[] | `[{command, description, available, usage?}]`，按当前阶段过滤（供 `/help` 与 TUI 命令面板渲染） |
+| `commands` | object[] | `[{command, description, available, usage?}]`，按当前阶段过滤（供 `/help` 与前端命令面板渲染） |
 
 #### `query/template`
 
@@ -321,13 +321,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 
 ## 7. 交互定义归属
 
-命令语法（`/skip`、`/help`、`/paste` 等）、快捷键与界面表现均属于**前端**——后端不理解任何命令文本，只提供结构化方法与事件。各前端的完整交互定义（命令集、命令 → 方法映射、中断/退出语义）见：
-
-- [frontends/CLI.md](../frontends/CLI.md)
-- [frontends/TUI.md](../frontends/TUI.md)
-- [frontends/WEB.md](../frontends/WEB.md)
-
-三份定义初期一致、后期允许因技术限制分叉。后端提供 `query/commands` 供前端查询当前阶段可用操作（结构化数据，非命令语法）。
+命令语法（`/skip`、`/help`、`/paste` 等）、快捷键与界面表现均属于**前端**——后端不理解任何命令文本，只提供结构化方法与事件。各前端在 [frontends/](../frontends/) 维护各自的完整交互定义（命令集、命令 → 方法映射、中断/退出语义）；定义初期一致、后期允许因技术限制分叉。后端提供 `query/commands` 供前端查询当前阶段可用操作（结构化数据，非命令语法）。
 
 ## 8. 并发与排队语义
 
@@ -337,7 +331,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 
 ## 9. 前端义务清单（摘要）
 
-每个前端必须：接收并渲染全部相关事件、支持会话创建/恢复/退出、实现输入与命令入口。各前端详细义务见 [frontends/CLI.md](../frontends/CLI.md)、[frontends/TUI.md](../frontends/TUI.md)、[frontends/WEB.md](../frontends/WEB.md)。
+每个前端必须：接收并渲染全部相关事件、支持会话创建/恢复/退出、实现输入与命令入口。各前端详细义务见 [frontends/](../frontends/) 各文档。
 
 ## 10. 时序示例
 

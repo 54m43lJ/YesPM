@@ -302,25 +302,25 @@ src/yespm_backend/
 │   ├── stdio.py            # stdio 适配（见 api/STDIO.md）
 │   └── websocket.py        # WebSocket 适配（见 api/WEBSOCKET.md）
 └── entry/                  # 进程入口（三个壳，共享同一 engine 与 protocol）
-    ├── cli.py              # yespm        → 进程内 transport（CLI 前端）
-    ├── server_stdio.py     # yespm-server → stdio 桥（TUI 用）
-    └── server_ws.py        # yespm-ws     → WebSocket 桥（Web 用）
+    ├── cli.py              # yespm-cli    → 进程内 transport（进程内形态前端）
+    ├── server_stdio.py     # yespm-server → stdio 桥（本地子进程形态前端）
+    └── server_ws.py        # yespm-ws     → WebSocket 桥（远端形态前端）
 ```
 
 ## 6. 进程形态（一个引擎，三个壳）
 
-| 命令 | 传输 | 使用者 |
-|------|------|--------|
-| `yespm` | 进程内（engine 直连） | 纯 CLI（Python） |
-| `yespm-server` | stdio | TUI（TypeScript 子进程） |
-| `yespm-ws` | WebSocket | Web（JS/TS） |
+| 命令 | 传输 | 前端形态 |
+|------|------|---------|
+| `yespm-cli` | 进程内（engine 直连） | 进程内形态前端 |
+| `yespm-server` | stdio | 本地子进程形态前端 |
+| `yespm-ws` | WebSocket | 远端形态前端 |
 
 三个壳共享同一 `engine/` 与 `protocol/`；`entry/` 只做传输启动与生命周期管理，不含任何业务逻辑。
 
 ## 7. 关键约束
 
 1. **依赖方向单向**：`engine/` → `graph/`；`protocol/` 与 `entry/` → `engine/`。engine 不得 import 任何 UI / 传输代码。
-2. **单一契约**：CLI 不绕过协议直调 engine 内部——它使用进程内 Transport 走同一 JSON-RPC 消息（见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 4），保证三前端行为一致。
+2. **单一契约**：前端不绕过协议直调 engine 内部——进程内形态的前端同样走 in-process Transport 的同一 JSON-RPC 消息（见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 4）。
 3. **自由文本零命令语义**：`input/send` 的 `text` 不做任何命令解析（原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6，实现见上文「API 方法分发」）。
 4. **错误分级**：全部错误以四位状态码统一表达（见 [PROTOCOL.md](../api/PROTOCOL.md) §11）：可恢复 error 级（LLM 调用失败 → 重试，耗尽后 4803）与致命 fatal 级（配置错误 5802、模板不合法 5701——加载时由 Pydantic 校验，启动阶段即拒绝并报错定位；checkpoint 持久化失败 5902、引擎内部故障 5901）。
 5. **零新增依赖**：SQLite（标准库）持久化沿用设计原则 3 的结论。

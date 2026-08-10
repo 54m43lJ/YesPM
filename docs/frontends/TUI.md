@@ -1,19 +1,19 @@
-# TUI 前端（TypeScript）
+# TUI 前端（Rust，主入口）
 
-> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输见 [api/STDIO.md](../api/STDIO.md)。TUI 是 CLI 之外的第二个消费方，用于验证协议对「多视图界面」的支撑。交互定义（本节）与 CLI / Web 初期一致，此后允许因键盘驱动界面的技术限制分叉。
+> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输见 [api/STDIO.md](../api/STDIO.md)。TUI 是**主入口**前端（Rust 二进制 `yespm`），CLI 为高级用法。交互定义（本节）与 CLI / Web / 桌面初期一致，此后允许因键盘驱动界面的技术限制分叉。需求与交付内容见 [TUI-DELIVERY.md](./TUI-DELIVERY.md)（草稿）。
 
 ## 1. 定位
 
 - 进程形态：spawn `yespm-server` 子进程（Python），通过 **stdio JSON Lines** 通信。
-- 技术选型（占位，实现时定）：Ink（React for CLI）或 blessed；不强制。
-- 交付：npm 包，与后端进程捆绑分发（TUI 自身可引导安装/发现 `yespm-server`）。
+- 技术选型：Rust——ratatui（渲染）+ crossterm（终端后端）+ tokio（子进程管理），选型记录见 [TUI-DELIVERY.md](./TUI-DELIVERY.md) §2。
+- 交付：Rust 单二进制 `yespm`，与后端进程捆绑分发（TUI 自身可引导发现 `yespm-server`）。
 - 职责：交互解释与包装——快捷键 / 命令 → 方法调用，事件 → 面板渲染。
 
 ## 2. 交互定义
 
 ### 2.1 输入方式
 
-- **输入框**：底部输入区，支持多行输入（Shift+Enter 换行，Enter 提交）。
+- **输入框**：底部输入区，支持多行输入（Shift+Enter 换行，Enter 提交；终端对 Shift+Enter 支持不一，保留 Ctrl+J 兜底换行，实现时实测）。
 - **键盘导航**：`Tab` / 方向键在视图间切换。
 - **粘贴**：文本域式粘贴（Ctrl+V），无需专用命令。
 
@@ -74,4 +74,4 @@
 
 ## 6. 与 CLI 的差异
 
-仅渲染形态与输入方式不同（键盘导航、面板布局、快捷键）；协议调用、事件处理、错误语义完全一致。
+仅渲染形态与输入方式不同（键盘导航、面板布局、快捷键）；协议调用、事件处理、错误语义遵循同一契约（[PROTOCOL.md](../api/PROTOCOL.md)）。

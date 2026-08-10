@@ -1,6 +1,6 @@
 # Web 前端（JS/TS）
 
-> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输见 [api/WEBSOCKET.md](../api/WEBSOCKET.md)。Web 前端是协议在**远端多用户形态**下的第三个消费方。交互定义（本节）与 CLI / TUI 初期一致，此后允许因浏览器技术限制分叉（无终端信号、无键盘优先输入流）。
+> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输见 [api/WEBSOCKET.md](../api/WEBSOCKET.md)。Web 前端是协议在**远端多用户形态**下的消费方之一。交互定义（本节）与 CLI / TUI 初期一致，此后允许因浏览器技术限制分叉（无终端信号、无键盘优先输入流）。桌面端为其 WebView 重新包装（见 [DESKTOP.md](./DESKTOP.md)）。
 
 ## 1. 定位
 
@@ -73,4 +73,4 @@
 
 ## 6. 与 CLI / TUI 的差异
 
-仅传输（WebSocket vs in-process / stdio）与渲染形态不同；协议调用、事件处理、错误语义完全一致。额外义务：连接管理（重连、多标签页）、健康检查；无终端信号语义，用按钮替代。
+仅传输（WebSocket vs in-process / stdio）与渲染形态不同；协议调用、事件处理、错误语义遵循同一契约（[PROTOCOL.md](../api/PROTOCOL.md)）。额外义务：连接管理（重连、多标签页）、健康检查；无终端信号语义，用按钮替代。

@@ -1,10 +1,10 @@
 # CLI 前端（Python）
 
-> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)。纯 CLI 是**参考实现**：最薄、最先交付，验证协议完备性后 TUI / Web 按同一契约实现。交互定义（本节）初期与 TUI / Web 一致，此后允许各自演变。
+> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)。纯 CLI 为**高级用法**：脚本化、无交互环境、深度调试场景。交互定义（本节）初期与 TUI / Web / 桌面一致，此后允许各自演变。
 
 ## 1. 定位
 
-- 与后端同仓库、同包交付，命令 `yespm`。
+- 与后端同仓库、同包交付，命令 `yespm-cli`。
 - 传输：**进程内绑定**——CLI 通过协议层的 in-process Transport 直连引擎，但**消息与 stdio / WebSocket 完全一致**（不绕过协议，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 约束 2）。
 - 职责：交互解释与包装——把用户输入翻译为方法调用、把事件渲染为终端输出，零业务逻辑。
 

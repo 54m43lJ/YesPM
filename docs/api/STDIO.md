@@ -1,6 +1,6 @@
 # stdio 传输绑定
 
-> [PROTOCOL.md](./PROTOCOL.md) 定义语义层；本文档定义其 stdio 绑定。适用：TUI（TypeScript）等本地子进程前端。纯 CLI（Python）使用进程内绑定，不经过本传输（见 [frontends/CLI.md](../frontends/CLI.md)）。
+> [PROTOCOL.md](./PROTOCOL.md) 定义语义层；本文档定义其 stdio 绑定。适用：本地子进程形态的前端（进程内形态的前端使用 in-process 绑定，不经过本传输）。
 
 ## 1. 进程
 
@@ -51,7 +51,7 @@
 | `SIGINT` / `SIGTERM` | 保存 checkpoint 后退出（退出码 130 / 143 约定） |
 | 致命错误 | stderr 输出错误、非 0 退出码 |
 
-## 5. 子进程管理（TUI 侧）
+## 5. 子进程管理（客户端侧）
 
 1. **spawn**：`yespm-server --db <path>`，等待 `server/ready` 后建立协议客户端。
 2. **事件分发**：逐行解析 stdout，响应按 `id` 回调，通知按 `method` 分发。
@@ -61,4 +61,4 @@
 
 ## 6. 与 WebSocket 绑定的等价性
 
-同一条协议消息在两种传输下逐字节一致；绑定差异仅为帧化方式与进程/连接生命周期。前端实现共享同一协议客户端核心，仅替换传输适配器。
+同一条协议消息在两种传输下逐字节一致；绑定差异仅为帧化方式与进程/连接生命周期。
