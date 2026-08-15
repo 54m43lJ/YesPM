@@ -47,7 +47,6 @@
 | 触发 | 行为 |
 |------|------|
 | 客户端关闭 stdin（EOF） | 服务器优雅保存后退出（退出码 0） |
-| `session/quit` | 保存 checkpoint，推送 `session/status`（`fields` 含 `ended`），进程退出（退出码 0） |
 | `SIGINT` / `SIGTERM` | 保存 checkpoint 后退出（退出码 130 / 143 约定） |
 | 致命错误 | stderr 输出错误、非 0 退出码 |
 

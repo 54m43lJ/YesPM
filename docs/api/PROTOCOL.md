@@ -91,7 +91,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|
 | `session_id` | string | 是 |
 
-删除会话及 checkpoint。已删除会话再次 `resume` 报错误 4001。
+删除会话、checkpoint 及其大文件目录（`./<session_id>/`，定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」）。已删除会话再次 `resume` 报错误 4001。
 
 #### `session/quit`
 
@@ -99,7 +99,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|
 | `session_id` | string | 是 |
 
-保存 checkpoint 后结束会话。随后推送 `session/status`（`fields` 含 `ended`）。
+保存 checkpoint 后结束会话（见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」）。随后推送 `session/status`（`fields` 含 `ended`）。
 
 ### 4.2 交互
 
@@ -296,7 +296,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 | `revision` | number | 状态版本号（随每次推送单调递增，随 checkpoint 持久化） |
 | `created_at` / `updated_at` | string | ISO8601 |
 
-> **revision 与同步**：前端记录已见 `revision`，发现跳号（说明中间有状态事件未处理）应主动 `query/status` 对齐。事件经可靠传输送达（WebSocket / stdio 语义），本机制只用于检测前端处理缺口，**不需要逐事件 ack**——状态权威在引擎（checkpoint），`query/status` 幂等对齐即可。
+> **revision 与同步**：前端记录已见 `revision`，发现跳号（说明中间有状态事件未处理）应主动 `query/status` 对齐。事件经可靠传输送达（WebSocket / stdio 语义），本机制只用于检测前端处理缺口，状态权威在引擎（checkpoint，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」），`query/status` 幂等对齐即可。
 >
 > **大载荷禁入**：`tree` / `final_prd` / `gaps` / `conversion_log` 不允许出现在 `fields` 中（推送与查询均同），一律走 5.3 的成对通道。
 

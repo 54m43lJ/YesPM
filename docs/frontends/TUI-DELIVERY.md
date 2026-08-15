@@ -31,17 +31,18 @@
 | # | 需求 | 契约依据 |
 |---|------|---------|
 | R1 | 协议客户端：JSON-RPC 2.0 信封编解码、请求 id 关联、通知分发、按行帧解析 | PROTOCOL §2 |
-| R2 | stdio 传输适配：spawn 子进程、`server/ready` 握手后发请求、stdout 事件/响应、stderr 落日志、请求级超时（秒级） | STDIO §2/3/5 |
-| R3 | 五个视图：会话列表 / 访谈 / 润色确认 / 取值树 / 文档预览，Tab + 方向键切换 | TUI §3 |
+| R2 | stdio 传输适配：spawn 子进程、`server/ready` 握手后发请求、stdout 事件/响应、stderr 落日志、响应级超时（秒级上限；命令类请求无超时语义——处理结果经事件回流） | STDIO §2/3/5 |
+| R3 | 六个视图：会话列表 / 访谈 / 润色确认 / 取值树 / 文档预览 / 转换日志，Tab + 方向键切换 | TUI §3 |
 | R4 | 底部多行输入框（Shift+Enter 换行、Enter 提交、Ctrl+V 粘贴，Ctrl+J 兜底） | TUI §2.1 |
 | R5 | 命令与快捷键映射（`/help`、`/status`、`/view [路径]`、`/skip` Alt+S、`/finish` Alt+F、`/undo` Ctrl+Z、`/quit` Ctrl+Q、`y`/`n` 批量确认） | TUI §2.2 |
 | R6 | 流式渲染：按 `message_id` 拼接 2031 chunk，2032 全量可复制 | TUI §2.3、PROTOCOL §6 |
 | R7 | 事件处理表全量实现（11 类事件 → 行为） | TUI §4 |
 | R8 | revision 跳号检测 → 主动 `query/status` 对齐 | PROTOCOL §5.2 |
-| R9 | 进程生命周期：正常退出、崩溃恢复 + `session/resume`、防孤儿（EOF 关子进程） | TUI §5、STDIO §4/5 |
+| R9 | 进程生命周期（由前端管理）：会话退出（`session/quit`，进程不退出）、应用退出（EOF 关子进程）、崩溃恢复 + `session/resume`、防孤儿 | TUI §5、STDIO §4/5 |
 | R10 | Ctrl+C 两级中断语义（第一次打断流式输出，再次触发退出流程）；窗口关闭发 `session/quit` | TUI §2.4 |
 | R11 | 错误呈现：4xxx/5xxx 按等级浮层（`log` 事件 + JSON-RPC error 响应） | TUI §4、PROTOCOL §11 |
 | R12 | 大载荷按需拉取：`tree/changed` → `query/tree` 等成对通道，禁入 status | PROTOCOL §5.3 |
+| R13 | 会话入口：`/new` → `session/create`；会话列表选中 Enter / `/resume <id>` → `session/resume`（崩溃恢复复用同一路径） | TUI §2.2、PROTOCOL §4.1 |
 
 非功能（模糊）：Windows 优先（当前开发机）、流式渲染不卡顿、协议处理与 UI 渲染解耦（事件队列 + 状态快照）。
 
@@ -72,7 +73,7 @@ crates/                        # cargo workspace
 ├── yespm-tui/                 # bin `yespm`（主入口）
 │   ├── src/app.rs             # 视图状态机、会话 store、命令路由
 │   ├── src/ui/                # SessionList / Interview / PolishPanel / TreeView / DocPreview /
-│   │                          # InputBox / StatusBar / HelpPanel
+│   │                          # ConversionLog / InputBox / StatusBar / HelpPanel
 │   └── src/input.rs           # crossterm 键盘事件 → 动作映射
 └── yespm-mock/                # 按 STDIO.md 行为的 mock 子进程（开发 + cargo test 集成测试）
 ```
@@ -91,7 +92,7 @@ crates/                        # cargo workspace
 | M0 | doc/tui：本草稿成文 + 各文档命名/选型落地 | 文档评审 |
 | M1 | yespm-client + StdioTransport + yespm-mock | cargo test（单元 + mock 集成） |
 | M2 | TUI 骨架：会话列表 + 访谈视图 + 输入框 + 流式渲染 | mock 集成 |
-| M3 | 润色确认 / 取值树 / 文档预览 / 命令集齐 | mock 集成 |
+| M3 | 润色确认 / 取值树 / 文档预览 / 转换日志 / 命令集齐 | mock 集成 |
 | M4 | 生命周期：崩溃恢复、resume、退出语义、打包与后端发现 | mock + 手工 |
 | M5 | 真实后端集成测试（后端 dev/evol-2 就绪后） | 端到端 |
 

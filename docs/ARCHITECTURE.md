@@ -34,7 +34,7 @@
 
 2. **缺口清单统一反馈**：单元成熟度评审与全文档审核产出同一形态的缺口清单 `[{path, dimension, reason}]`，是全流程唯一的反馈载体，回灌访谈 agent 复用同一套单元循环，无逐字段回问路径。
 
-3. **interrupt + checkpoint 为交互核心**：人工介入（interrupt）与断点续聊（checkpoint）是本系统的核心需求；会话状态统一由 checkpointer 持久化，不另建状态管理。
+3. **interrupt + checkpoint 为交互核心**：人工介入（interrupt）与断点续聊（checkpoint）是本系统的核心需求；会话状态统一由 checkpointer 持久化（定义见 [backend/ARCHITECTURE.md](./backend/ARCHITECTURE.md)「checkpointer 定义」一节），不另建状态管理；断点续传由此承载。
 
 4. **协议优先、事件驱动、后端无头**：语义与传输解耦（协议层可插拔传输），**单一契约、多端复用**，不存在第二套接口；后端是唯一状态所有者，状态变化一律事件推送，前端零轮询、零状态推断；事件收敛为少量通用模板，大载荷以成对的变更信号 + 专属查询提供（契约细节见 [api/PROTOCOL.md](./api/PROTOCOL.md) §5）；后端只理解 API，不理解任何用户命令与交互形态——命令语法、快捷键、界面表现都是前端对 API 的重新解释与包装。
 

@@ -274,16 +274,48 @@ Session
 ```
 
 - **API 方法分发**：引擎入口是协议方法分发器（方法 → 引擎操作），不存在「命令文本路由」——`input/send` 的 `text` 是纯数据，原样转发给当前活跃节点；`command/skip` / `command/finish` / `command/undo` / `proposal/respond` / `session/quit` 是结构化操作（命令结构化原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6）。
-- **单一状态源**：状态本体在 LangGraph checkpoint 中（仅 SqliteSaver 一份）；会话元数据表只维护会话清单（创建时间、模板、状态摘要），不复制状态。
+- **单一状态源**：状态本体在 LangGraph checkpoint 中（见下文「checkpointer 定义」）；会话元数据表只维护会话清单（创建时间、模板、状态摘要），不复制状态。
 - **单会话串行**：一个 Session 同一时刻只跑一个图执行（流式 `stream_mode`）；busy 期间的输入暂存（`pending_queue`）与请求拒绝语义以 [PROTOCOL.md](../api/PROTOCOL.md) §8 为准。
 - **事件发布**：引擎内所有状态变化发布领域事件，由传输适配层序列化为协议通知（事件模板与载荷通道见 [PROTOCOL.md](../api/PROTOCOL.md) §5，唯一契约来源）；引擎不感知前端存在。
+
+### checkpointer 定义
+
+checkpoint 是会话状态的唯一持久化机制（原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 3）。
+
+#### 存储形态（两级存储）
+
+| 内容 | 形态 | 位置 |
+|------|------|------|
+| 会话小状态（`stage`、进度、interrupt 点、`revision` 等） | SqliteSaver checkpoint（单一状态源，仅一份） | SQLite 数据库 |
+| 大载荷（取值树 `tree` / 最终 PRD `final_prd` / 缺口清单 `gaps` / 转换日志 `conversion_log`，分类见 [PROTOCOL.md](../api/PROTOCOL.md) §5.2） | **文件** | `./<session_id>/` 目录 |
+| 大载荷引用 | 文件路径 | SQLite 数据库 |
+| 会话元数据（会话清单） | SQLite 表（不复制状态） | SQLite 数据库 |
+
+- 会话创建（`session/create`）时初始化 `./<session_id>/`；`session/delete` 删除 checkpoint 及该目录；崩溃恢复 / `session/resume` 按路径读文件。
+- 查询直接读 checkpoint 内容，不自建第二套快照；`interrupt` 依赖 checkpointer。
+
+#### 保存时机
+
+| # | 触发点 | 时机 | 说明 |
+|---|--------|------|------|
+| 1 | 关键流程节点执行完成 | 每个图节点边界：interview_agent / unit_review_agent / transcribe_agent / document_review_agent / polish_agent / fidelity_evaluation_agent / 确定性渲染器 | 图执行一步存档一次；大载荷产出时同步写文件并记录路径 |
+| 2 | interrupt 挂起 | 等待输入时 | 恢复后补发 `session/await_input` 的依据（[PROTOCOL.md](../api/PROTOCOL.md) 10.3） |
+| 3 | `session/quit` | 结束会话前 | 保存后推送 `session/status`（`fields` 含 `ended`） |
+| 4 | 连接断开（WebSocket） | 断线时 | 断点续传依据（[WEBSOCKET.md](../api/WEBSOCKET.md) §3） |
+| 5 | 进程退出前 | stdio EOF / SIGINT / SIGTERM | 优雅退出前保存（[STDIO.md](../api/STDIO.md) §4） |
+
+#### 读取、删除与失败
+
+- **恢复**：`session/resume` 从最后保存的 checkpoint 恢复（[PROTOCOL.md](../api/PROTOCOL.md) 10.3）；`command/undo` 回退依赖历史 checkpoint。
+- **删除**：`session/delete` 删除会话、checkpoint 及 `artifacts/<session_id>/` 目录。
+- **失败**：checkpoint 持久化失败 → 5902 fatal / engine（[PROTOCOL.md](../api/PROTOCOL.md) §11）。
 
 ## 4. 技术栈结论
 
 （选型理由见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 3）
 
 - **编排**：主图（LangGraph 图 1）覆盖访谈阶段的单元循环（interview_agent → unit_review_agent → transcribe_agent），含缺口驱动模式，以产出完整结构化取值树为终点；审核与润色为轻量图（图 2）：全文档审核回灌循环 + 渲染润色（polish_agent ↔ fidelity_evaluation_agent 迭代）。
-- **持久化：仅 SqliteSaver 一份**：会话状态（取值树、进度、interrupt 点）统一存入 LangGraph SqliteSaver（`sqlite3` 为 Python 标准库，零新增依赖）；查询直接读 checkpoint 内容，不自建第二套快照；`interrupt` 依赖 checkpointer，跨进程恢复必须持久化 saver。
+- **持久化：仅 SqliteSaver 一份**：会话小状态统一存入 LangGraph SqliteSaver（`sqlite3` 为 Python 标准库，零新增依赖）；大载荷以文件形态存储（见上文「checkpointer 定义」）；`interrupt` 依赖 checkpointer。
 - 技术栈选型唯一结论：**LangGraph 为编排框架**；新增 WebSocket 服务依赖 `websockets`，不影响协议层。
 
 ## 5. 模块结构
@@ -316,6 +348,20 @@ src/yespm_backend/
 | `yespm-ws` | WebSocket | 远端形态前端 |
 
 三个壳共享同一 `engine/` 与 `protocol/`；`entry/` 只做传输启动与生命周期管理，不含任何业务逻辑。
+
+### 进程生命周期
+
+进程的开启与结束由**宿主前端**管理（原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 10）：前端负责 spawn 与触发退出（关闭 stdin / 信号 / terminate），后端不自行开启或结束进程，只响应传输级退出事件：
+
+| 事件 | 行为 |
+|------|------|
+| stdio EOF（前端关闭 stdin） | 保存 checkpoint 后优雅退出（退出码 0） |
+| `SIGINT` / `SIGTERM` | 保存 checkpoint 后退出（退出码 130 / 143 约定） |
+| 致命错误 | stderr 输出错误、非 0 退出码 |
+
+- **`session/quit` 仅结束会话**：保存 checkpoint 并推送 `session/status`（`fields` 含 `ended`），**不终止进程**——进程是否退出由前端决定（两传输绑定行为一致，见 [api/STDIO.md](../api/STDIO.md) §4 与 [api/WEBSOCKET.md](../api/WEBSOCKET.md) §3）。
+- **checkpoint 语义**：保存时机（关键节点存档）与存储形态见上文「checkpointer 定义」。
+- **WebSocket 断点续传**：连接断开不触发进程退出，断开时保存 checkpoint（见上文「checkpointer 定义」）；下次连接经 `session/resume` 续聊（见 [api/WEBSOCKET.md](../api/WEBSOCKET.md) §3、[api/PROTOCOL.md](../api/PROTOCOL.md) 10.3）。
 
 ## 7. 关键约束
 

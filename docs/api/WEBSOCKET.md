@@ -28,7 +28,7 @@
 - **一个连接可承载多个会话**：消息内携带 `session_id`，连接本身不绑定会话。
 - **事件订阅**：连接创建 / 恢复会话后即订阅该会话事件；同一会话被多个连接订阅（多连接）时事件广播到全部订阅连接。
 - **多客户端竞争**：同一会话的输入类请求先到先得（见 [PROTOCOL.md](./PROTOCOL.md) §8）。
-- **连接断开不销毁会话**：会话状态在引擎中持续存在（checkpoint 持久化）；重连后 `session/resume` 即可续聊（含挂起中断的补发，见 [PROTOCOL.md](./PROTOCOL.md) 10.3）。
+- **会话断点续传**：连接断开不销毁会话状态——后端在连接断开时保存 checkpoint（见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」）；重连后 `session/resume` 即可续聊（含挂起中断的补发，见 [PROTOCOL.md](./PROTOCOL.md) 10.3）。
 
 ## 4. 认证
 

@@ -21,6 +21,8 @@
 
 | 输入 | 语义 | 映射 |
 |------|------|------|
+| `/new [模板]` | 新建会话（可选模板） | `session/create` |
+| `/resume <id>`（会话列表选中 + Enter 亦可） | 恢复历史会话 | `session/resume` |
 | `/help` 或 `?` | 显示命令列表与当前可用操作（本地渲染，可查 `query/commands`） | 前端本地 |
 | `/status` | 状态面板：当前单元、已完成单元、取值树摘要 | `query/status` |
 | `/view [路径]` | 取值树视图（可折叠浏览） | `query/tree` |
@@ -28,7 +30,7 @@
 | `/finish` 或 `Alt+F` | 结束访谈阶段，进入全文档审核 | `command/finish` |
 | `y` / `n`（确认面板） | 润色阶段确认 / 拒绝高风险提案（可批量选择后回车） | `proposal/respond` |
 | `/undo` 或 `Ctrl+Z` | 回退最近一次转录 / 转换 | `command/undo` |
-| `/quit` 或 `Ctrl+Q` | 退出（保存 checkpoint） | `session/quit` |
+| `/quit` 或 `Ctrl+Q` | 结束当前会话（保存 checkpoint，返回会话列表；进程不退出，应用退出见 §5） | `session/quit` |
 
 ### 2.3 流式输出
 
@@ -36,18 +38,19 @@
 
 ### 2.4 中断与退出语义
 
-- **Ctrl+C**：由 TUI 框架接管（非终端信号语义）——第一次中断当前流式输出；再次按触发退出流程（`session/quit` 后退出）。
-- **窗口关闭**：发送 `session/quit`，关闭 stdin，等待子进程退出（见 §4）。
+- **Ctrl+C**：由 TUI 框架接管（非终端信号语义）——第一次中断当前流式输出；再次按触发应用退出流程（见 §5）。
+- **窗口关闭**：发送 `session/quit`（若有活跃会话），随后关闭 stdin（应用退出流程见 §5）。
 
 ## 3. 视图结构
 
 | 视图 | 内容 | 数据来源 |
 |------|------|---------|
-| 会话列表 | 历史会话（模板、状态、时间） | `session/list` |
+| 会话列表 | 历史会话（模板、状态、时间）；选中 Enter 恢复 / `/new` 新建 | `session/list` → `session/resume` / `session/create` |
 | 访谈视图 | 对话流 + 输入框、当前单元提示、已完单元进度 | 事件流 + `query/status` |
 | 润色确认 | 高风险转换提案逐条确认（apply / reject，可批量）——自然语言描述来自 `session/message`，`proposal_ids` 来自 `session/status` 的 `waiting` | `session/message` + `session/status` → `proposal/respond` |
 | 取值树 | `query/tree` 树形浏览 | `tree/changed` → `query/tree` |
 | 文档预览 | `query/prd` 的 Markdown（只读，可导出） | `prd/changed` → `query/prd` |
+| 转换日志 | 润色转换记录（已应用 / 已丢弃，支持复核与回退） | `conversions/changed` → `query/conversions` |
 
 ## 4. 必须处理的事件 → 行为
 
@@ -67,10 +70,13 @@
 
 ## 5. 进程生命周期（子进程管理）
 
+后端进程的开启与结束由前端管理（后端侧行为见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 进程生命周期一节）；`session/quit` 只结束会话、不终止进程。TUI 负责 spawn 与触发退出：
+
 1. spawn `yespm-server --db <path>` → 等待 `server/ready` 握手（[STDIO.md](../api/STDIO.md) §3）。
-2. 正常退出：发送 `session/quit` → 等待 `session/status`（`ended` 字段）→ 关闭 stdin。
-3. 崩溃恢复：子进程非 0 退出 → 提示用户 → 重新 spawn → 对活跃会话 `session/resume`（挂起中断由引擎补发 `session/await_input`）。
-4. 前端退出：EOF 关闭子进程，防止孤儿进程。
+2. 会话退出：发送 `session/quit` → 等待 `session/status`（`ended` 字段）→ 返回会话列表（进程保持运行，可继续新建 / 恢复会话）。
+3. 应用退出：发送 `session/quit`（若有活跃会话）→ 等待 `ended` → 关闭 stdin（EOF 触发后端优雅退出，见 [STDIO.md](../api/STDIO.md) §4）。
+4. 崩溃恢复：子进程非 0 退出 → 提示用户 → 重新 spawn → 对活跃会话 `session/resume`（恢复点 = 最后保存的 checkpoint；挂起中断由引擎补发 `session/await_input`）。
+5. 防孤儿：应用退出时必须结束子进程（关闭 stdin / terminate）。
 
 ## 6. 与 CLI 的差异
 
