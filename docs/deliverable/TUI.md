@@ -118,8 +118,8 @@ crates/                        # cargo workspace
 | M4 | 文档消费与润色确认视图 | mock 集成 |
 | M5 | 可靠性、打包与发布 | mock + 手工 + 真实后端端到端 |
 
-## 5. 开放问题（占位）
+## 5. 额外细节
 
 - Windows 终端下 Alt+S / Ctrl+Z / Shift+Enter 键码差异与兜底（Ctrl+J 候选）；crossterm 对 Alt 修饰键的表现待实测。
-- 捆绑发布形态（zip / 安装器 / 自解压，未定）。
-- `yespm-mock` 是否保留为开发依赖。
+- 目前发布形态定为zip形式
+- `yespm-mock` 依赖仅限开发阶段使用，最终发布版本需要排除
