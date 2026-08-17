@@ -69,7 +69,7 @@ yespm-cli
 - 依赖：Rust 工具链（stable）。
 - 编译：`cargo build --release`（`crates/yespm-tui`）。
 - 运行：`yespm`，自动发现 `yespm-server`（PATH → Conda 环境 `yespm` 回退，可 `--server` 覆盖）。
-- 文档：[frontends/TUI.md](docs/frontends/TUI.md)、[frontends/TUI-DELIVERY.md](docs/frontends/TUI-DELIVERY.md)。
+- 文档：[frontends/TUI.md](docs/frontends/TUI.md)、[deliverable/TUI.md](docs/deliverable/TUI.md)。
 
 ##### Desktop（占位）
 

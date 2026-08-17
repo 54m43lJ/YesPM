@@ -1,11 +1,11 @@
 # TUI 前端（Rust，主入口）
 
-> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输见 [api/STDIO.md](../api/STDIO.md)。TUI 是**主入口**前端（Rust 二进制 `yespm`），CLI 为高级用法。交互定义（本节）与 CLI / Web / 桌面初期一致，此后允许因键盘驱动界面的技术限制分叉。需求与交付内容见 [TUI-DELIVERY.md](./TUI-DELIVERY.md)（草稿）。
+> 契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输见 [api/STDIO.md](../api/STDIO.md)。TUI 是**主入口**前端（Rust 二进制 `yespm`），CLI 为高级用法。交互定义（本节）与 CLI / Web / 桌面初期一致，此后允许因键盘驱动界面的技术限制分叉。
 
 ## 1. 定位
 
 - 进程形态：spawn `yespm-server` 子进程（Python），通过 **stdio JSON Lines** 通信。
-- 技术选型：Rust——ratatui（渲染）+ crossterm（终端后端）+ tokio（子进程管理），选型记录见 [TUI-DELIVERY.md](./TUI-DELIVERY.md) §2。
+- 技术选型：Rust——ratatui（渲染）+ crossterm（终端后端）+ tokio（子进程管理）。
 - 交付：Rust 单二进制 `yespm`，与后端进程捆绑分发（TUI 自身可引导发现 `yespm-server`）。
 - 职责：交互解释与包装——快捷键 / 命令 → 方法调用，事件 → 面板渲染。
 
