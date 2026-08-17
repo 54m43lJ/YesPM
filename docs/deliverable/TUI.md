@@ -1,14 +1,15 @@
 # TUI 前端交付（需求与验收）
 
-> 面向 TUI 实现者：本文档逐项列出可交付功能、验收标准与里程碑，需求来源均引用项目文档（交互定义见 [frontends/TUI.md](../frontends/TUI.md)，语义层契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输绑定见 [api/STDIO.md](../api/STDIO.md)）。本文档只对**交付一个用户可以使用的 TUI 界面**负责，不涉及其他前端形态或其他传输。
+> 面向 TUI 实现者：本文档逐项列出可交付功能、验收标准与里程碑，需求来源均引用项目文档（交互定义见 [frontends/TUI.md](../frontends/TUI.md)，语义层契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)，传输绑定见 [api/STDIO.md](../api/STDIO.md)，后端交付见 [BACKEND.md](./BACKEND.md)）。本文档只对**交付一个下载即可直接运行的系统**（TUI 界面 + 随包后端，zip 发布包 + 安装脚本）负责，不涉及其他前端形态或其他传输。
 
 ## 1. 范围与定位
 
 | 项 | 内容 |
 |----|------|
-| 交付物 | Rust 单二进制 `yespm`（主入口前端） |
+| 交付物 | 完整可运行系统：TUI 二进制 `yespm` + Python 后端，以 zip 发布包 + 安装脚本交付 |
 | 通信方式 | spawn 后端 stdio 桥 `yespm-server`，stdio JSON Lines（[STDIO.md](../api/STDIO.md)） |
-| 不在范围 | 其他前端（CLI / Web / 桌面）；非 stdio 传输（WebSocket）；后端引擎实现 |
+| 发布形态 | `yespm-<版本>-<平台>.zip` + 安装脚本；用户解压、运行安装脚本后即可使用（不内置 Python 运行时） |
+| 不在范围 | 其他前端（CLI / Web / 桌面）；非 stdio 传输（WebSocket）；后端引擎实现（后端项目交付，见 [BACKEND.md](./BACKEND.md)） |
 | 分层依据 | 前端实现只依赖协议契约与传输绑定；后端文档见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)，本文档不重复其内容 |
 
 ## 2. 技术选型与工程结构（实现约定）
@@ -35,6 +36,19 @@ crates/                        # cargo workspace
 │   │                          # ConversionLog / InputBox / StatusBar / HelpPanel
 │   └── src/input.rs           # crossterm 键盘事件 → 动作映射
 └── yespm-mock/                # 按 STDIO.md 行为的 mock 子进程（开发 + cargo test 集成测试）
+```
+
+发布包布局（zip，不内置 Python 运行时）：
+
+```
+yespm-<版本>-win64.zip/
+├── install.ps1            # Windows 安装脚本（后端安装步骤见 BACKEND.md）
+├── bin/
+│   └── yespm.exe          # TUI 主入口（Rust）
+├── backend/               # Python 后端产物
+│   ├── requirements.txt   # 依赖清单
+│   └── yespm_backend/     # 后端源码/包
+└── .env.example           # 配置样例
 ```
 
 ## 3. 需求分段与里程碑
@@ -103,10 +117,12 @@ crates/                        # cargo workspace
 | R24 | Ctrl+C 两级中断 | 第一次打断当前流式输出；再次触发应用退出流程；窗口关闭发送 `session/quit` | TUI §2.4 |
 | R25 | 防孤儿 | 应用退出时关闭 stdin / terminate，不留孤儿子进程 | STDIO §5；TUI §5 |
 | R26 | 错误呈现 | `log` 事件与 JSON-RPC error 响应按 4xxx / 5xxx 等级浮层展示 | PROTOCOL §11 |
-| R27 | 打包与后端发现 | `yespm` 单二进制与后端捆绑分发；启动时 PATH → Conda 环境回退发现 `yespm-server`，`--server` 可覆盖 | TUI §1 |
+| R27 | zip 发布包 | 解压后文件齐全（`bin/yespm` + `backend/` + `install.ps1` + `.env.example`）；不内置 Python 运行时 | 本文档 §2；BACKEND.md |
+| R28 | Windows 安装脚本 `install.ps1`：环境发现 **uv → conda → venv → PATH** 安装后端（步骤见 [BACKEND.md](./BACKEND.md) §3 M5）；检测不到任何 Python 工具链时 MessageBox 弹窗——确认则打开 python.org 下载页，取消则停止安装并清理 | 全新机器（无 Python / Conda / Rust）解压 → 运行脚本 → `yespm` 直接可用；脚本幂等、可重跑 | 本文档 §1 / §2；BACKEND.md §3 |
+| R29 | 运行时后端发现：`yespm` 启动按 **uv → conda → venv（含包内 `backend/.venv`）→ PATH** 顺序定位 `yespm-server`；`--server` 可覆盖 | 各环境形态下均能启动后端；`--server` 指向任意后端可执行时优先使用 | TUI §1 |
 
-**里程碑交付物**：完整生命周期可靠性 + 发布产物。
-**检查**：mock + 手工走查 R22–R26；真实后端端到端走查 R27（含崩溃恢复与断点续聊）。
+**里程碑交付物**：完整生命周期可靠性 + 发布产物（zip + install.ps1）。
+**检查**：mock + 手工走查 R22–R26；真实后端端到端走查 R27–R29（含崩溃恢复与断点续聊）；全新 Windows 机器：解压 → install.ps1 → 直接使用。
 
 ## 4. 里程碑总表
 
@@ -121,5 +137,6 @@ crates/                        # cargo workspace
 ## 5. 额外细节
 
 - Windows 终端下 Alt+S / Ctrl+Z / Shift+Enter 键码差异与兜底（Ctrl+J 候选）；crossterm 对 Alt 修饰键的表现待实测。
-- 目前发布形态定为zip形式
-- `yespm-mock` 依赖仅限开发阶段使用，最终发布版本需要排除
+- 发布形态定为 zip + 安装脚本（不内置 Python 运行时）；macOS / Linux 安装脚本（install.sh）结构预留，后续实现。
+- 安装脚本弹窗行为：检测不到 Python 工具链时弹窗提醒，确认 → 打开 python.org 下载页；取消 → 停止安装并清理（R28）。
+- `yespm-mock` 依赖仅限开发阶段使用，最终发布版本需要排除。

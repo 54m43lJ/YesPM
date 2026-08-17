@@ -73,3 +73,5 @@
 | [frontends/TUI.md](./frontends/TUI.md) | TUI 前端架构（Rust，主入口）：交互定义 + 事件处理 |
 | [frontends/WEB.md](./frontends/WEB.md) | Web 前端架构（JS/TS）：交互定义 + 事件处理 |
 | [frontends/DESKTOP.md](./frontends/DESKTOP.md) | 桌面前端架构（占位，WebView 包装 Web）：交互定义 + 事件处理 |
+| [deliverable/TUI.md](./deliverable/TUI.md) | TUI 交付：可交付功能 + 验收标准 + 里程碑（zip 发布包 + 安装脚本） |
+| [deliverable/BACKEND.md](./deliverable/BACKEND.md) | 后端交付：可交付功能 + 验收标准 + 里程碑（引擎 / 协议 / 传输 / 持久化 / 安装） |

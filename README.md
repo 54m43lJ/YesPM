@@ -20,6 +20,25 @@
 
 ## 环境准备
 
+### 用户路径：发布包 + 安装脚本
+
+1. 下载发布包 `yespm-<版本>-win64.zip` 并解压（下载即用，无需预装 Python / Conda / Rust；交付要求见 [deliverable/TUI.md](docs/deliverable/TUI.md)、[deliverable/BACKEND.md](docs/deliverable/BACKEND.md)）。
+2. 运行安装脚本（自动按 uv → conda → venv → PATH 顺序准备后端环境；检测不到 Python 工具链时会弹窗引导）：
+
+```powershell
+.\install.ps1
+```
+
+3. 配置 API Key：复制 `.env.example` 为 `.env`，填入你的 OpenAI API Key。
+
+4. 运行：
+
+```powershell
+yespm
+```
+
+### 开发者路径：Conda 环境
+
 ### 1. 创建 Conda 环境
 
 ```powershell
@@ -68,7 +87,7 @@ yespm-cli
 
 - 依赖：Rust 工具链（stable）。
 - 编译：`cargo build --release`（`crates/yespm-tui`）。
-- 运行：`yespm`，自动发现 `yespm-server`（PATH → Conda 环境 `yespm` 回退，可 `--server` 覆盖）。
+- 运行：`yespm`，自动发现 `yespm-server`（uv → conda → venv → PATH，可 `--server` 覆盖）。
 - 文档：[frontends/TUI.md](docs/frontends/TUI.md)、[deliverable/TUI.md](docs/deliverable/TUI.md)。
 
 ##### Desktop（占位）
