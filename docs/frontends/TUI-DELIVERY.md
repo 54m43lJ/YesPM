@@ -13,6 +13,8 @@
 
 后端桥进程（由 Python 包提供）：`yespm-server`（stdio）/ `yespm-ws`（WebSocket）。两者**服务端接口一致**（同一契约、双传输）；客户端各自实现，**无客户端侧等价性要求**。
 
+> 各前端命名、传输与进程形态的权威定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) §6 与 [ARCHITECTURE.md](../ARCHITECTURE.md) 分层图，本表为交付视角摘要。
+
 ## 2. 技术选型
 
 | 项 | 结论 | 说明 |

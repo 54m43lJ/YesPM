@@ -12,6 +12,7 @@
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | `--db <path>` | `./yespm.db` | SQLite checkpoint 路径（SqliteSaver，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)） |
+| `--data-dir <path>` | 平台用户数据目录 | 大载荷文件目录（定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」） |
 | `--template <path>` | 内置模板 | 模板 YAML 路径 |
 | `--config <path>` | `.env` | LLM 等配置 |
 | `--version` | — | 打印版本后退出 |
@@ -54,10 +55,10 @@
 
 1. **spawn**：`yespm-server --db <path>`，等待 `server/ready` 后建立协议客户端。
 2. **事件分发**：逐行解析 stdout，响应按 `id` 回调，通知按 `method` 分发。
-3. **请求超时**：命令类请求无超时语义（处理结果经事件回流）；请求级响应应在可接受时间内返回（实现取数秒级上限）。
+3. **请求超时**：命令类请求不设硬超时（处理结果经事件回流）；其余请求的响应应在可接受时间内返回（建议秒级上限）。
 4. **崩溃恢复**：子进程意外退出 → 前端提示，重新 spawn 后 `session/resume` 续聊（checkpoint 已持久化，见 [PROTOCOL.md](./PROTOCOL.md) 10.3）。
 5. **防孤儿**：前端退出时必须结束子进程（stdin EOF 或 terminate）。
 
 ## 6. 与 WebSocket 绑定的等价性
 
-同一条协议消息在两种传输下逐字节一致；绑定差异仅为帧化方式与进程/连接生命周期。
+跨传输消息内容完全一致（见 [PROTOCOL.md](./PROTOCOL.md) §3）；绑定差异仅为帧化方式与进程/连接生命周期。

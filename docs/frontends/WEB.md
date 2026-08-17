@@ -31,7 +31,7 @@
 
 ### 2.3 流式输出
 
-- 对话流按 `message_id` 增量渲染 `session/message`（2031 chunk）；2032（complete）提供全量文本（复制按钮）。
+- 流式语义（按 `message_id` 拼接 2031 chunk / 2032 全量）见 [PROTOCOL.md](../api/PROTOCOL.md) §6；对话流增量渲染，2032 提供全量文本（复制按钮）。
 
 ### 2.4 中断与退出语义
 
@@ -54,7 +54,7 @@
 | 事件 | 行为 |
 |------|------|
 | `session/status`（首条全字段） | 进入访谈视图，恢复挂起状态 |
-| `session/message`（2031 / 2032） | 流式渲染（增量追加；2032 提供全量文本供复制） |
+| `session/message`（2031 / 2032） | 流式渲染（增量追加；拼接语义见 [PROTOCOL.md](../api/PROTOCOL.md) §6，2032 全量供复制） |
 | `session/await_input` | 激活输入区（`waiting.kind=interview`）；`waiting.kind=proposal` 切换确认面板 |
 | `session/status`（`waiting` 含 `proposal_ids`） | 结合 `session/message` 自然语言提案描述，批量应用 / 拒绝后 `proposal/respond` |
 | `tree/changed` | 刷新取值树视图（`query/tree`） |

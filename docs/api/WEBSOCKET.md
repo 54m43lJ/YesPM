@@ -13,6 +13,7 @@
 |------|------|------|
 | `--host` / `--port` | `127.0.0.1` / `8765` | 监听地址 |
 | `--db <path>` | `./yespm.db` | SQLite checkpoint 路径 |
+| `--data-dir <path>` | 平台用户数据目录 | 大载荷文件目录（定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」） |
 | `--template <path>` | 内置模板 | 模板 YAML 路径 |
 | `--config <path>` | `.env` | LLM 等配置 |
 

@@ -33,7 +33,7 @@
 
 ### 2.3 流式输出
 
-- 按 `message_id` 拼接 `session/message`（2031 chunk）增量打印；2032（complete）落盘副本（供复制 / 导出）。
+- 流式语义（按 `message_id` 拼接 2031 chunk / 2032 全量）见 [PROTOCOL.md](../api/PROTOCOL.md) §6；CLI 增量打印，2032 落盘副本（供复制 / 导出）。
 
 ### 2.4 中断与退出语义
 
@@ -46,7 +46,7 @@
 |------|------|
 | `session/status`（首条全字段） | 打印会话信息与恢复后的挂起状态 |
 | `session/status`（`stage` / `node` 字段） | 打印阶段切换（如 `—— 全文档审核 ——`） |
-| `session/message`（2031 / 2032） | 流式渲染 agent 输出 |
+| `session/message`（2031 / 2032） | 流式渲染 agent 输出（拼接语义见 [PROTOCOL.md](../api/PROTOCOL.md) §6） |
 | `session/await_input` | 更新提示符上下文，进入等待输入态（阶段 / 等待种类由已收 `session/status` 推断） |
 | `session/status`（`waiting` 含 `proposal_ids`） | 结合自然语言提案描述（`session/message`），等待 `y/n` 后按序 `proposal/respond` |
 | `gaps/changed` | 提示审核不通过，可按需 `query/gaps` 展示缺口清单（自然语言结论已随 `session/message` 显示） |

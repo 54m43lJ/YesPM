@@ -34,7 +34,7 @@
 
 ### 2.3 流式输出
 
-- 对话流按 `message_id` 拼接 `session/message`（2031 chunk）增量渲染；2032（complete）提供全量文本（供复制）。
+- 流式语义（按 `message_id` 拼接 2031 chunk / 2032 全量）见 [PROTOCOL.md](../api/PROTOCOL.md) §6；TUI 增量渲染到对话流，2032 提供全量文本（供复制）。
 
 ### 2.4 中断与退出语义
 
@@ -57,7 +57,7 @@
 | 事件 | 行为 |
 |------|------|
 | `session/status`（首条全字段） | 进入访谈视图 |
-| `session/message`（2031 / 2032） | 流式渲染到对话流（按 `message_id` 拼接） |
+| `session/message`（2031 / 2032） | 流式渲染到对话流（拼接语义见 [PROTOCOL.md](../api/PROTOCOL.md) §6） |
 | `session/await_input` | 显示输入框（`stage` / `waiting.kind=interview`）；`waiting.kind=proposal` 切换确认面板 |
 | `session/status`（`waiting` 含 `proposal_ids`） | 结合 `session/message` 自然语言提案描述，`y`/`n` 或批量选择后 `proposal/respond` |
 | `tree/changed` | 若有打开的取值树视图则刷新（`query/tree`） |
@@ -70,13 +70,10 @@
 
 ## 5. 进程生命周期（子进程管理）
 
-后端进程的开启与结束由前端管理（后端侧行为见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 进程生命周期一节）；`session/quit` 只结束会话、不终止进程。TUI 负责 spawn 与触发退出：
+通用子进程管理（spawn / `server/ready` 握手 / 崩溃恢复 / 防孤儿）见 [STDIO.md](../api/STDIO.md) §5，此处仅列 TUI 特有的退出序列（`session/quit` 只结束会话、不终止进程，见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md) 进程生命周期一节）：
 
-1. spawn `yespm-server --db <path>` → 等待 `server/ready` 握手（[STDIO.md](../api/STDIO.md) §3）。
-2. 会话退出：发送 `session/quit` → 等待 `session/status`（`ended` 字段）→ 返回会话列表（进程保持运行，可继续新建 / 恢复会话）。
-3. 应用退出：发送 `session/quit`（若有活跃会话）→ 等待 `ended` → 关闭 stdin（EOF 触发后端优雅退出，见 [STDIO.md](../api/STDIO.md) §4）。
-4. 崩溃恢复：子进程非 0 退出 → 提示用户 → 重新 spawn → 对活跃会话 `session/resume`（恢复点 = 最后保存的 checkpoint；挂起中断由引擎补发 `session/await_input`）。
-5. 防孤儿：应用退出时必须结束子进程（关闭 stdin / terminate）。
+1. 会话退出：发送 `session/quit` → 等待 `session/status`（`ended` 字段）→ 返回会话列表（进程保持运行，可继续新建 / 恢复会话）。
+2. 应用退出：发送 `session/quit`（若有活跃会话）→ 等待 `ended` → 关闭 stdin（EOF 触发后端优雅退出，见 [STDIO.md](../api/STDIO.md) §4）。
 
 ## 6. 与 CLI 的差异
 

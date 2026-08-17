@@ -1,18 +1,18 @@
 # YesPM 后端架构（Backend）
 
-> 本文档描述后端**工作流程**（三阶段流程与 agent 职责）与**引擎实现**（会话机制、技术栈结论、模块与进程形态）。设计原则与选型理由见 [ARCHITECTURE.md](../ARCHITECTURE.md)；对外接口契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)；交互定义（命令语法、快捷键等）在 [frontends/](../frontends/) 各前端文档中，后端不承载。
+> 本文档描述后端**工作流程**（三阶段流程与 agent 职责）与**引擎实现**（会话机制、技术栈结论、模块与进程形态）。设计原则与选型理由见 [ARCHITECTURE.md](../ARCHITECTURE.md)；对外接口契约见 [api/PROTOCOL.md](../api/PROTOCOL.md)；命令语法与交互形态不属于后端职责（见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6）。
 
 ## 1. 定位与边界
 
 后端是一个**无头（headless）会话引擎**：持有全部状态、流程控制与持久化，对外只暴露统一 API（[PROTOCOL.md](../api/PROTOCOL.md)）。后端**只理解 API**——不解析任何命令文本、不感知任何交互形态。
 
-| 在后端（引擎） | 在前端（解释与包装） |
-|----------------|---------------------|
-| 会话状态机（阶段 / 等待 / 忙） | 事件渲染 |
-| API 方法分发（方法 → 引擎操作） | 命令语法与快捷键 → 方法调用 |
-| 中断管理与输入暂存 | 输入采集（多行、粘贴模式） |
-| checkpoint 持久化 | 帮助文本、状态面板 |
-| LangGraph 流程（三阶段） | 取值树 / 文档预览 |
+| 在后端（引擎） |
+|----------------|
+| 会话状态机（阶段 / 等待 / 忙） |
+| API 方法分发（方法 → 引擎操作） |
+| 中断管理与输入暂存 |
+| checkpoint 持久化 |
+| LangGraph 流程（三阶段） |
 
 ## 2. 工作流程（三阶段）
 
@@ -128,7 +128,7 @@ unit_review_agent ── 成熟度评审（本单元对话 + 取值树）──�
 1. **单元划分**：由 tier 决定（tier 语义与拆分规则见 [TEMPLATE_SPEC.md](../TEMPLATE_SPEC.md) tier 语义一节）。P0 字段 → 字段级单元；P1 章节 → 章节级单元；P2 → 无单元，转录/收尾时推断。repeat 的 tier 仅由继承决定、其子树内声明无效，整棵 repeat 子树为单一访谈单元。
 2. **评审触发点**：interview_agent 主动声明"本单元覆盖完毕"时触发评审；兜底为对话超过 N 轮（默认 5）未声明时强制评审一次，防止闲聊不推进。
 3. **评审反馈**：unit_review_agent 不成熟时返回**缺口清单**（哪些要点缺失/不清晰），interview_agent 据此针对性追问，形成闭环。
-4. **单元级中断与阶段级结束（操作语义）**：`skip` 与 `finish` 的完整语义见 [PROTOCOL.md](../api/PROTOCOL.md) §4.2（`command/skip` / `command/finish`）；关键区别——`skip` 只跳过当前单元，`finish` 才终止访谈阶段，两者语义互斥。（命令语法与映射由各前端定义，见 [frontends/](../frontends/)）
+4. **单元级中断与阶段级结束（操作语义）**：`skip` 与 `finish` 的完整语义见 [PROTOCOL.md](../api/PROTOCOL.md) §4.2（`command/skip` / `command/finish`）；关键区别——`skip` 只跳过当前单元，`finish` 才终止访谈阶段，两者语义互斥（命令语法不属于后端职责，见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6）。
 5. **跨单元上下文彻底隔离**：每个单元的访谈历史在转录完成后**丢弃**。下一单元开始时，interview_agent / unit_review_agent 的上下文仅为**已转录的结构化取值树** + 模板单元描述，不含任何原始对话。
 
 #### transcribe_agent 硬性约束
@@ -276,7 +276,7 @@ Session
 - **API 方法分发**：引擎入口是协议方法分发器（方法 → 引擎操作），不存在「命令文本路由」——`input/send` 的 `text` 是纯数据，原样转发给当前活跃节点；`command/skip` / `command/finish` / `command/undo` / `proposal/respond` / `session/quit` 是结构化操作（命令结构化原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6）。
 - **单一状态源**：状态本体在 LangGraph checkpoint 中（见下文「checkpointer 定义」）；会话元数据表只维护会话清单（创建时间、模板、状态摘要），不复制状态。
 - **单会话串行**：一个 Session 同一时刻只跑一个图执行（流式 `stream_mode`）；busy 期间的输入暂存（`pending_queue`）与请求拒绝语义以 [PROTOCOL.md](../api/PROTOCOL.md) §8 为准。
-- **事件发布**：引擎内所有状态变化发布领域事件，由传输适配层序列化为协议通知（事件模板与载荷通道见 [PROTOCOL.md](../api/PROTOCOL.md) §5，唯一契约来源）；引擎不感知前端存在。
+- **事件发布**：引擎内所有状态变化发布领域事件，由传输适配层序列化为协议通知（事件模板与载荷通道见 [PROTOCOL.md](../api/PROTOCOL.md) §5，唯一契约来源）；引擎不感知任何外部消费形态。
 
 ### checkpointer 定义
 
@@ -287,11 +287,12 @@ checkpoint 是会话状态的唯一持久化机制（原则见 [ARCHITECTURE.md]
 | 内容 | 形态 | 位置 |
 |------|------|------|
 | 会话小状态（`stage`、进度、interrupt 点、`revision` 等） | SqliteSaver checkpoint（单一状态源，仅一份） | SQLite 数据库 |
-| 大载荷（取值树 `tree` / 最终 PRD `final_prd` / 缺口清单 `gaps` / 转换日志 `conversion_log`，分类见 [PROTOCOL.md](../api/PROTOCOL.md) §5.2） | **文件** | `./<session_id>/` 目录 |
+| 大载荷（取值树 `tree` / 最终 PRD `final_prd` / 缺口清单 `gaps` / 转换日志 `conversion_log`，分类见 [PROTOCOL.md](../api/PROTOCOL.md) §5.2） | **文件** | `{data_dir}/<session_id>/` 目录 |
 | 大载荷引用 | 文件路径 | SQLite 数据库 |
 | 会话元数据（会话清单） | SQLite 表（不复制状态） | SQLite 数据库 |
 
-- 会话创建（`session/create`）时初始化 `./<session_id>/`；`session/delete` 删除 checkpoint 及该目录；崩溃恢复 / `session/resume` 按路径读文件。
+- `data_dir` 默认位于平台标准用户数据目录（Windows `%APPDATA%` / macOS `~/Library/Application Support` / Linux `$XDG_DATA_HOME` 下的 `yespm/`），可经 `--data-dir` 启动参数或配置文件覆盖。
+- 会话创建（`session/create`）时初始化 `{data_dir}/<session_id>/`；`session/delete` 删除 checkpoint 及该目录；崩溃恢复 / `session/resume` 按路径读文件。
 - 查询直接读 checkpoint 内容，不自建第二套快照；`interrupt` 依赖 checkpointer。
 
 #### 保存时机
@@ -307,7 +308,7 @@ checkpoint 是会话状态的唯一持久化机制（原则见 [ARCHITECTURE.md]
 #### 读取、删除与失败
 
 - **恢复**：`session/resume` 从最后保存的 checkpoint 恢复（[PROTOCOL.md](../api/PROTOCOL.md) 10.3）；`command/undo` 回退依赖历史 checkpoint。
-- **删除**：`session/delete` 删除会话、checkpoint 及 `artifacts/<session_id>/` 目录。
+- **删除**：`session/delete` 删除会话、checkpoint 及 `{data_dir}/<session_id>/` 目录（`data_dir` 定义见上文「checkpointer 定义」）。
 - **失败**：checkpoint 持久化失败 → 5902 fatal / engine（[PROTOCOL.md](../api/PROTOCOL.md) §11）。
 
 ## 4. 技术栈结论
@@ -334,39 +335,33 @@ src/yespm_backend/
 │   ├── stdio.py            # stdio 适配（见 api/STDIO.md）
 │   └── websocket.py        # WebSocket 适配（见 api/WEBSOCKET.md）
 └── entry/                  # 进程入口（三个壳，共享同一 engine 与 protocol）
-    ├── cli.py              # yespm-cli    → 进程内 transport（进程内形态前端）
-    ├── server_stdio.py     # yespm-server → stdio 桥（本地子进程形态前端）
-    └── server_ws.py        # yespm-ws     → WebSocket 桥（远端形态前端）
+    ├── cli.py              # yespm-cli    → 进程内 transport（进程内形态）
+    ├── server_stdio.py     # yespm-server → stdio 桥（本地子进程形态）
+    └── server_ws.py        # yespm-ws     → WebSocket 桥（远端形态）
 ```
 
 ## 6. 进程形态（一个引擎，三个壳）
 
-| 命令 | 传输 | 前端形态 |
+| 命令 | 传输 | 消费形态 |
 |------|------|---------|
-| `yespm-cli` | 进程内（engine 直连） | 进程内形态前端 |
-| `yespm-server` | stdio | 本地子进程形态前端 |
-| `yespm-ws` | WebSocket | 远端形态前端 |
+| `yespm-cli` | 进程内（engine 直连） | 进程内形态 |
+| `yespm-server` | stdio | 本地子进程形态 |
+| `yespm-ws` | WebSocket | 远端形态 |
 
 三个壳共享同一 `engine/` 与 `protocol/`；`entry/` 只做传输启动与生命周期管理，不含任何业务逻辑。
 
 ### 进程生命周期
 
-进程的开启与结束由**宿主前端**管理（原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 10）：前端负责 spawn 与触发退出（关闭 stdin / 信号 / terminate），后端不自行开启或结束进程，只响应传输级退出事件：
+进程的开启与结束由**外部宿主进程**管理：宿主负责 spawn 与触发退出（关闭 stdin / 信号 / terminate），后端不自行开启或结束进程，只响应传输级退出事件（关闭语义见 [api/STDIO.md](../api/STDIO.md) §4）。
 
-| 事件 | 行为 |
-|------|------|
-| stdio EOF（前端关闭 stdin） | 保存 checkpoint 后优雅退出（退出码 0） |
-| `SIGINT` / `SIGTERM` | 保存 checkpoint 后退出（退出码 130 / 143 约定） |
-| 致命错误 | stderr 输出错误、非 0 退出码 |
-
-- **`session/quit` 仅结束会话**：保存 checkpoint 并推送 `session/status`（`fields` 含 `ended`），**不终止进程**——进程是否退出由前端决定（两传输绑定行为一致，见 [api/STDIO.md](../api/STDIO.md) §4 与 [api/WEBSOCKET.md](../api/WEBSOCKET.md) §3）。
+- **`session/quit` 仅结束会话**：保存 checkpoint 并推送 `session/status`（`fields` 含 `ended`），**不终止进程**——进程是否退出由宿主决定（两传输绑定行为一致，见 [api/STDIO.md](../api/STDIO.md) §4 与 [api/WEBSOCKET.md](../api/WEBSOCKET.md) §3）。
 - **checkpoint 语义**：保存时机（关键节点存档）与存储形态见上文「checkpointer 定义」。
 - **WebSocket 断点续传**：连接断开不触发进程退出，断开时保存 checkpoint（见上文「checkpointer 定义」）；下次连接经 `session/resume` 续聊（见 [api/WEBSOCKET.md](../api/WEBSOCKET.md) §3、[api/PROTOCOL.md](../api/PROTOCOL.md) 10.3）。
 
 ## 7. 关键约束
 
 1. **依赖方向单向**：`engine/` → `graph/`；`protocol/` 与 `entry/` → `engine/`。engine 不得 import 任何 UI / 传输代码。
-2. **单一契约**：前端不绕过协议直调 engine 内部——进程内形态的前端同样走 in-process Transport 的同一 JSON-RPC 消息（见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 4）。
+2. **单一契约**：见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 4。
 3. **自由文本零命令语义**：`input/send` 的 `text` 不做任何命令解析（原则见 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则 6，实现见上文「API 方法分发」）。
 4. **错误分级**：全部错误以四位状态码统一表达（见 [PROTOCOL.md](../api/PROTOCOL.md) §11）：可恢复 error 级（LLM 调用失败 → 重试，耗尽后 4803）与致命 fatal 级（配置错误 5802、模板不合法 5701——加载时由 Pydantic 校验，启动阶段即拒绝并报错定位；checkpoint 持久化失败 5902、引擎内部故障 5901）。
 5. **零新增依赖**：SQLite（标准库）持久化沿用设计原则 3 的结论。

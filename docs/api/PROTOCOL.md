@@ -4,7 +4,7 @@
 
 ## 1. 设计原则
 
-协议设计遵循 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则（协议优先 / 事件驱动 / 会话导向 / 后端无头 / 命令结构化 / 消息模板化与状态码统一等），本文档是其落地的唯一契约来源，不复述原则论证。契约规则见各相应章节：异步命令 + 同步查询（§4）、事件模板与载荷通道（§5）、单会话串行（§8）、四位状态码（§11）。
+协议设计遵循 [ARCHITECTURE.md](../ARCHITECTURE.md) 设计原则（协议优先 / 事件驱动 / 后端无头 / 命令结构化），本文档是其落地的唯一契约来源，不复述原则论证。契约规则见各相应章节：异步命令 + 同步查询（§4）、事件模板与载荷通道（§5）、单会话串行（§8）、四位状态码（§11）。
 
 ## 2. 消息信封（JSON-RPC 2.0）
 
@@ -91,7 +91,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 |------|------|------|
 | `session_id` | string | 是 |
 
-删除会话、checkpoint 及其大文件目录（`./<session_id>/`，定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」）。已删除会话再次 `resume` 报错误 4001。
+删除会话、checkpoint 及其大文件目录（位置与 `data_dir` 定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」）。已删除会话再次 `resume` 报错误 4001。
 
 #### `session/quit`
 
@@ -261,7 +261,8 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 | `provider` | string | LLM 提供商 |
 | `model` | string | 模型名 |
 | `template` | string | 当前模板 |
-| `db_path` | string | 持久化路径 |
+| `db_path` | string | 持久化路径（SQLite checkpoint） |
+| `data_dir` | string | 大载荷文件目录（定义见 [backend/ARCHITECTURE.md](../backend/ARCHITECTURE.md)「checkpointer 定义」） |
 | `version` | string | 后端版本 |
 
 不提供 `config/set`；配置变更经配置文件后重启生效。
@@ -274,7 +275,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 
 | 事件 | 参数（`params`） | 语义 |
 |------|------------------|------|
-| `log` | `{session_id?, status_code, message, data?}` | 系统日志与错误：等级由 `status_code` 千位推断（1xxx debug / 2xxx info / 3xxx warn / 4xxx error / 5xxx fatal，见 §11）；请求失败不在此列，走 JSON-RPC error 响应；stdio 绑定落 stderr（见 [STDIO.md](./STDIO.md)） |
+| `log` | `{session_id?, status_code, message, data?}` | 系统日志与错误：等级由 `status_code` 千位推断（见 §11.1）；请求失败不在此列，走 JSON-RPC error 响应；stdio 绑定落 stderr（见 [STDIO.md](./STDIO.md)） |
 | `session/status` | `{session_id, status_code: 2001, fields: string[], revision: number, …}` | **唯一会话状态通道**：状态变化即推送，只带**变化/相关字段**，`fields` 声明本消息包含的字段（白名单见 5.2）；创建 / 恢复后首条推全字段快照；会话结束时 `fields` 含 `ended`。大载荷不在此通道 |
 | `session/message` | `{session_id, message_id, status_code: 2031\|2032, delta?, text?}` | **唯一文本流通道**：agent 回复流式推送；2031 = chunk（增量，顺序即文本顺序），2032 = complete（携带全量文本）；前端按 `message_id` 拼接（见 §6） |
 | `session/await_input` | `{session_id, status_code: 2002}` | **唯一「可回复」信号**：纯信号——引擎挂起，前端可以发送进一步消息（`input/send` 或 `proposal/respond`）。处于什么阶段、等待何种输入完全由前端从 `session/status` 的 `stage` / `waiting` 字段推断，本消息不携带任何上下文 |
@@ -302,7 +303,7 @@ SessionMeta：`{session_id, template_title, status, stage, created_at, updated_a
 
 ### 5.3 大载荷变更信号（大载荷设计例外）
 
-大载荷不进 `session/status` / `query/status`，每个载荷有**成对**的专用通道：变更信号（本表）+ 专属查询（§4.3）。信号为纯提示，载荷一律按需拉取，信号与载荷零重合。
+大载荷不进 `session/status` / `query/status`，每个载荷有**成对**的专用通道：变更信号（本表，各信号的固定 `status_code` 见 §11.3：2220 / 2420 / 2422 / 2520）+ 专属查询（§4.3）。信号为纯提示，载荷一律按需拉取，信号与载荷零重合。
 
 | 事件 | 参数（`params`） | 语义 | 拉取 |
 |------|------------------|------|------|
